@@ -26,7 +26,7 @@ fn print_prakriyas(prakriyas: &[Prakriya]) {
             let terms: Vec<_> = step
                 .result()
                 .iter()
-                .map(|x| x.text())
+                .map(|x| x.text2())
                 .filter(|x| !x.is_empty())
                 .collect();
             let result = terms.join(" + ");
@@ -44,11 +44,14 @@ fn main() {
     // Create a basic dhatu with `Dhatu::mula`
     //
     // For supported dhatus, see `dhatupatha.tsv`.
-    let bhu = Dhatu::mula("BU", Gana::Bhvadi);
+    let bhu = Dhatu::mula("BU", Gana::Bhvadi)
+        // .with_sanadi(&[Sanadi::san]);
+        .with_sanadi(&[Sanadi::san])
+        .with_prefixes(&["pra", "apa", "ava"]);
 
     let args = Tinanta::builder()
         .dhatu(bhu)
-        .lakara(Lakara::Lat)
+        .lakara(Lakara::Lun)
         .prayoga(Prayoga::Kartari)
         .purusha(Purusha::Prathama)
         .vacana(Vacana::Eka)
@@ -58,11 +61,13 @@ fn main() {
     print_prakriyas(&prakriyas);
 
     // Create a sannanta dhatu with `with_sanadi`.
-    let jijnasa = Dhatu::mula("jYA\\", Gana::Kryadi).with_sanadi(&[Sanadi::san]);
+    let jijnasa = Dhatu::mula("arTa", Gana::Curadi)
+    // .with_sanadi(&[Sanadi::san])
+    ;
 
     let args = Tinanta::builder()
         .dhatu(jijnasa)
-        .lakara(Lakara::Lat)
+        .lakara(Lakara::Lun)
         .prayoga(Prayoga::Kartari)
         .purusha(Purusha::Prathama)
         .vacana(Vacana::Eka)

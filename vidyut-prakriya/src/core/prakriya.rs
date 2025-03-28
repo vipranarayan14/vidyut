@@ -101,10 +101,21 @@ pub struct StepTerm {
     was_changed: bool,
 }
 
+fn enumset_to_string(set: &EnumSet<Tag>) -> String {
+    set.iter()
+        .map(|e| format!("{:?}", e)) // Use Debug formatting
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
 impl StepTerm {
     /// The current text of this term.
     pub fn text(&self) -> &str {
         &self.text
+    }
+
+    pub fn text2(&self) -> String {
+        format!("{} ({})", &self.text, enumset_to_string(&self.tags))
     }
 
     /// Whether the term was changed in the current step.
@@ -191,6 +202,26 @@ impl Prakriya {
         } else {
             for t in &self.terms {
                 ret.push_str(&t.text);
+            }
+        }
+        ret
+    }
+
+    /// Temp
+    pub fn text2(&self) -> String {
+        let mut ret = String::from("");
+
+        let mut should_split = true;
+
+        for t in &self.terms {
+            ret.push_str(&t.text);
+
+            if t.text == "Am" || t.text == "AM" || t.text == "AY" {
+                should_split = false;
+            }
+
+            if should_split && t.is_dhatu() && !t.is_pratyaya() {
+                ret.push_str("+");
             }
         }
         ret

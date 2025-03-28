@@ -37,6 +37,7 @@ struct Row<'a> {
     lakara: &'static str,
     purusha: &'static str,
     vacana: &'static str,
+    sanadis: String,
 }
 
 fn create_pada_string(mut padas: Vec<String>, output_scheme: Scheme) -> String {
@@ -70,11 +71,16 @@ fn run(dhatupatha: Dhatupatha, args: Args) -> Result<(), Box<dyn Error>> {
             // We should handle this with an error, but it's easier to default to SLP1.
             _ => Scheme::Slp1,
         },
-        None => Scheme::Slp1,
+        None => Scheme::Wx,
     };
 
     for entry in dhatupatha {
         let dhatu = entry.dhatu();
+
+        // if entry.code() != "01.1159" {
+        //     continue;
+        // }
+
         for sanadis in &sanadi_choices {
             for prayoga in &[Prayoga::Kartari, Prayoga::Karmani] {
                 for lakara in Lakara::iter() {
@@ -94,21 +100,31 @@ fn run(dhatupatha: Dhatupatha, args: Args) -> Result<(), Box<dyn Error>> {
                             }
 
                             let dhatu_text = &dhatu.upadesha().expect("ok");
-                            let padas: Vec<_> = prakriyas.iter().map(|p| p.text()).collect();
-                            let padas = create_pada_string(padas, output_scheme);
+                            let padas: Vec<_> = prakriyas.iter().map(|p| p.text2()).collect();
 
-                            let row = Row {
-                                padas,
-                                dhatu: dhatu_text,
-                                gana: dhatu.gana().expect("ok").as_str(),
-                                number: entry.number(),
-                                lakara: lakara.as_str(),
-                                purusha: purusha.as_str(),
-                                vacana: vacana.as_str(),
-                                prayoga: prayoga.as_str(),
-                            };
+                            for pada in padas {
+                                let padas = create_pada_string(vec![pada], output_scheme);
+                                let sanadi: Vec<String> = sanadis
+                                    .iter()
+                                    .map(|s| s.as_str().to_owned()) // Convert to `String` to own the data
+                                    .collect();
 
-                            wtr.serialize(row)?;
+                                let joined_sanadi: String = sanadi.join(":"); // Now you can safely join
+
+                                let row = Row {
+                                    padas,
+                                    dhatu: dhatu_text,
+                                    gana: dhatu.gana().expect("ok").as_str(),
+                                    number: entry.number(),
+                                    lakara: lakara.as_str(),
+                                    purusha: purusha.as_str(),
+                                    vacana: vacana.as_str(),
+                                    prayoga: prayoga.as_str(),
+                                    sanadis: joined_sanadi,
+                                };
+
+                                wtr.serialize(row)?;
+                            }
                         }
                     }
                 }

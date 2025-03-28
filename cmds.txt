@@ -1,0 +1,2 @@
+cargo run --release --example create_all_tinantas > tinantas_suffix_split.csv
+cargo run --release --example print_prakriyas
