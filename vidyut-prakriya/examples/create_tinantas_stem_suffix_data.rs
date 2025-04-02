@@ -29,7 +29,9 @@ struct Args {
 
 #[derive(Debug, Serialize)]
 struct Row<'a> {
-    padas: String,
+    form: String,
+    stem: String,
+    suffix: String,
     dhatu: &'a str,
     gana: &'static str,
     number: u16,
@@ -76,7 +78,7 @@ fn run(dhatupatha: Dhatupatha, args: Args) -> Result<(), Box<dyn Error>> {
         None => Scheme::Wx,
     };
 
-    for entry in dhatupatha {
+    for entry in dhatupatha.into_iter().take(20) {
         let dhatu = entry.dhatu();
 
         // if entry.code() != "01.1159" {
@@ -107,7 +109,11 @@ fn run(dhatupatha: Dhatupatha, args: Args) -> Result<(), Box<dyn Error>> {
                                 let padas: Vec<_> = prakriyas.iter().map(|p| p.text2()).collect();
 
                                 for pada in padas {
-                                    let padas = create_pada_string(vec![pada], output_scheme);
+                                    let pada_str = create_pada_string(vec![pada], output_scheme);
+
+                                    let (stem, suffix) =
+                                        pada_str.split_once("+").unwrap_or(("", ""));
+
                                     let sanadi: Vec<String> = sanadis
                                         .iter()
                                         .map(|s| s.as_str().to_owned()) // Convert to `String` to own the data
@@ -116,7 +122,9 @@ fn run(dhatupatha: Dhatupatha, args: Args) -> Result<(), Box<dyn Error>> {
                                     let joined_sanadi: String = sanadi.join(":"); // Now you can safely join
 
                                     let row = Row {
-                                        padas,
+                                        form: pada_str.to_owned(),
+                                        stem: stem.to_owned(),
+                                        suffix: suffix.to_owned(),
                                         dhatu: dhatu_text,
                                         gana: dhatu.gana().expect("ok").as_str(),
                                         number: entry.number(),
