@@ -33,29 +33,42 @@ struct Row<'a> {
     stem: String,
     suffix: String,
     dhatu: &'a str,
-    gana: &'static str,
-    number: u16,
+    gana_num: &'static str,
+    entry_num: u16,
     // code: String,
     sanadis: String,
-    prayoga: &'static str,
-    padi: &'static str,
-    lakara: &'static str,
-    purusha: &'static str,
-    vacana: &'static str,
+    prayoga: String,
+    padi: String,
+    lakara: String,
+    purusha: String,
+    vacana: String,
 }
 
-fn create_pada_string(mut padas: Vec<String>, output_scheme: Scheme) -> String {
-    padas.sort();
+// fn create_pada_string(mut padas: Vec<String>, output_scheme: Scheme) -> String {
+//     padas.sort();
+//     let mut lipika = Lipika::new();
+//     if output_scheme != Scheme::Slp1 {
+//         for s in padas.iter_mut() {
+//             *s = lipika.transliterate(&s, Scheme::Slp1, output_scheme);
+//         }
+//     }
+//     padas.join("|")
+// }
+
+fn transliterate_to_wx(input_str: String) -> String {
     let mut lipika = Lipika::new();
-    if output_scheme != Scheme::Slp1 {
-        for s in padas.iter_mut() {
-            *s = lipika.transliterate(&s, Scheme::Slp1, output_scheme);
-        }
-    }
-    padas.join("|")
+
+    // Transliterate to wx scheme
+    let transliterated_str = lipika.transliterate(&input_str, Scheme::Slp1, Scheme::Wx);
+
+    // Remove accent svara marks "\" and "^"
+    let cleaned_str = transliterated_str.replace("\\", "").replace("^", "");
+    cleaned_str
+
+    // transliterated_str
 }
 
-fn run(dhatupatha: Dhatupatha, args: Args) -> Result<(), Box<dyn Error>> {
+fn run(dhatupatha: Dhatupatha, _args: Args) -> Result<(), Box<dyn Error>> {
     let sanadi_choices = vec![
         vec![],
         vec![Sanadi::san],
@@ -67,18 +80,19 @@ fn run(dhatupatha: Dhatupatha, args: Args) -> Result<(), Box<dyn Error>> {
     let mut wtr = csv::Writer::from_writer(io::stdout());
     let v = Vyakarana::builder().log_steps(false).build();
 
-    let output_scheme = match args.output_scheme {
-        Some(x) => match x.as_str() {
-            "devanagari" => Scheme::Devanagari,
-            "iast" => Scheme::Iast,
-            "slp1" => Scheme::Slp1,
-            // We should handle this with an error, but it's easier to default to SLP1.
-            _ => Scheme::Slp1,
-        },
-        None => Scheme::Wx,
-    };
+    // let output_scheme = match args.output_scheme {
+    //     Some(x) => match x.as_str() {
+    //         "devanagari" => Scheme::Devanagari,
+    //         "iast" => Scheme::Iast,
+    //         "slp1" => Scheme::Slp1,
+    //         // We should handle this with an error, but it's easier to default to SLP1.
+    //         _ => Scheme::Slp1,
+    //     },
+    //     None => Scheme::Wx,
+    // };
 
-    for entry in dhatupatha.into_iter().take(20) {
+    // for entry in dhatupatha.into_iter().take(20) {
+    for entry in dhatupatha {
         let dhatu = entry.dhatu();
 
         // if entry.code() != "01.1159" {
@@ -105,36 +119,65 @@ fn run(dhatupatha: Dhatupatha, args: Args) -> Result<(), Box<dyn Error>> {
                                     continue;
                                 }
 
-                                let dhatu_text = &dhatu.upadesha().expect("ok");
-                                let padas: Vec<_> = prakriyas.iter().map(|p| p.text2()).collect();
+                                let forms: Vec<_> = prakriyas.iter().map(|p| p.text2()).collect();
 
-                                for pada in padas {
-                                    let pada_str = create_pada_string(vec![pada], output_scheme);
+                                for form in forms {
+                                    // Form
+                                    let form_wx = transliterate_to_wx(form);
 
                                     let (stem, suffix) =
-                                        pada_str.split_once("+").unwrap_or(("", ""));
+                                        form_wx.split_once("+").unwrap_or(("", ""));
 
-                                    let sanadi: Vec<String> = sanadis
+                                    // Dhatu
+                                    let dhatu_text = &dhatu.upadesha().expect("ok");
+                                    let dhatu_wx = transliterate_to_wx(dhatu_text.to_string());
+
+                                    // Gana
+                                    let gana = dhatu.gana().expect("ok");
+
+                                    // Sanadi
+                                    let sanadis_text = sanadis
                                         .iter()
                                         .map(|s| s.as_str().to_owned()) // Convert to `String` to own the data
-                                        .collect();
+                                        .collect::<Vec<_>>()
+                                        .join(":");
 
-                                    let joined_sanadi: String = sanadi.join(":"); // Now you can safely join
+                                    let sanadis_wx = transliterate_to_wx(sanadis_text.to_string());
 
+                                    // Lakara
+                                    let lakara_wx =
+                                        transliterate_to_wx(lakara.as_str().to_string());
+
+                                    // Padi
+                                    let dhatupada_wx =
+                                        transliterate_to_wx(dhatupada.as_str().to_string());
+
+                                    // Prayoga
+                                    let prayoga_wx =
+                                        transliterate_to_wx(prayoga.as_str().to_string());
+
+                                    // Purusha
+                                    let purusha_wx =
+                                        transliterate_to_wx(purusha.as_str().to_string());
+
+                                    // Vacana
+                                    let vacana_wx =
+                                        transliterate_to_wx(vacana.as_str().to_string());
+
+                                    // Create the row
                                     let row = Row {
-                                        form: pada_str.to_owned(),
+                                        form: form_wx.to_owned(),
                                         stem: stem.to_owned(),
                                         suffix: suffix.to_owned(),
-                                        dhatu: dhatu_text,
-                                        gana: dhatu.gana().expect("ok").as_str(),
-                                        number: entry.number(),
-                                        // code: entry.code().to_owned(),
-                                        sanadis: joined_sanadi,
-                                        lakara: lakara.as_str(),
-                                        padi: dhatupada.as_str(),
-                                        prayoga: prayoga.as_str(),
-                                        purusha: purusha.as_str(),
-                                        vacana: vacana.as_str(),
+                                        dhatu: dhatu_wx.as_str(),
+                                        gana_num: gana.as_str(),
+                                        entry_num: entry.number(),
+                                        sanadis: sanadis_text,
+                                        lakara: lakara.as_str().to_string(),
+                                        padi: dhatupada.as_str().to_string(),
+                                        prayoga: prayoga.as_str().to_string(),
+                                        purusha: purusha.as_str().to_string(),
+                                        vacana: vacana.as_str().to_string(),
                                     };
 
                                     wtr.serialize(row)?;
