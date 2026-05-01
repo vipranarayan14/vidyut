@@ -1,11 +1,17 @@
 use crate::args::dhatu::Dhatu;
+use crate::args::macros::sanskrit_enum;
 use crate::core::errors::Error;
-use crate::core::Tag;
-use crate::enum_boilerplate;
+use crate::core::{PrakriyaTag, Tag};
 use wasm_bindgen::prelude::wasm_bindgen;
 
-/// The prayoga of some tinanta.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
+
+/// The *prayoga* of some *tiṅanta*.
+///
+/// *Prayoga* is roughly similar to the Western concept of verb *voice*.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[wasm_bindgen]
 pub enum Prayoga {
     /// Usage coreferent with the agent, e.g. "The horse *goes* to the village."
@@ -13,28 +19,29 @@ pub enum Prayoga {
     /// Usage coreferent with the object, e.g. "The village *is gone to* by the horse."
     Karmani,
     /// Usage without a referent, e.g. "*There is motion* by the horse to the village."
-    /// bhAve prayoga generally produces the same forms as karmani prayoga.
+    /// *bhāve prayoga* generally produces the same forms as karmani prayoga.
     Bhave,
 }
 
-enum_boilerplate!(Prayoga, {
+sanskrit_enum!(Prayoga, {
     Kartari => "kartari",
-    Karmani => "karmani",
-    Bhave => "bhave",
+    Karmani => "karmaRi",
+    Bhave => "BAve",
 });
 
 impl Prayoga {
-    pub(crate) fn as_tag(&self) -> Tag {
+    pub(crate) fn as_tag(&self) -> PrakriyaTag {
         match self {
-            Self::Kartari => Tag::Kartari,
-            Self::Karmani => Tag::Karmani,
-            Self::Bhave => Tag::Bhave,
+            Self::Kartari => PrakriyaTag::Kartari,
+            Self::Karmani => PrakriyaTag::Karmani,
+            Self::Bhave => PrakriyaTag::Bhave,
         }
     }
 }
 
-/// The person of some tinanta.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+/// The person of some *tiṅanta*.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[wasm_bindgen]
 pub enum Purusha {
     /// The third person.
@@ -45,9 +52,9 @@ pub enum Purusha {
     Uttama,
 }
 
-enum_boilerplate!(Purusha, {
-    Prathama => "prathama",
-    Madhyama => "madhyama",
+sanskrit_enum!(Purusha, {
+    Prathama => "praTama",
+    Madhyama => "maDyama",
     Uttama => "uttama",
 });
 
@@ -61,8 +68,9 @@ impl Purusha {
     }
 }
 
-/// The number of some tinanta or subanta.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+/// The number of some *tiṅanta* or *subanta*.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[wasm_bindgen]
 pub enum Vacana {
     /// The singular.
@@ -73,7 +81,7 @@ pub enum Vacana {
     Bahu,
 }
 
-enum_boilerplate!(Vacana, {
+sanskrit_enum!(Vacana, {
     Eka => "eka",
     Dvi => "dvi",
     Bahu => "bahu",
@@ -89,8 +97,9 @@ impl Vacana {
     }
 }
 
-/// The tense/mood of some tinanta.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+/// The tense/mood of some *tiṅanta*.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[wasm_bindgen]
 pub enum Lakara {
     /// Describes action in the present tense. Ssometimes called the *present indicative*.
@@ -117,21 +126,39 @@ pub enum Lakara {
     Lrn,
 }
 
-enum_boilerplate!(Lakara, {
-    Lat => "lat",
-    Lit => "lit",
-    Lut => "lut",
-    Lrt => "lrt",
-    Let => "let",
-    Lot => "lot",
-    Lan => "lan",
-    VidhiLin => "vidhi-lin",
-    AshirLin => "ashir-lin",
-    Lun => "lun",
-    Lrn => "lrn",
+sanskrit_enum!(Lakara, {
+    Lat => "la~w",
+    Lit => "li~w",
+    Lut => "lu~w",
+    Lrt => "lf~w",
+    Let => "le~w",
+    Lot => "lo~w",
+    Lan => "la~N",
+    VidhiLin => "viDili~N",
+    AshirLin => "ASIrli~N",
+    Lun => "lu~N",
+    Lrn => "lf~N",
 });
 
 impl Lakara {
+    /// Returns the *aupadeśika* form of this *pratyaya*.
+    pub fn aupadeshika(&self) -> &'static str {
+        use Lakara::*;
+        match self {
+            Lat => "la~w",
+            Lit => "li~w",
+            Lut => "lu~w",
+            Lrt => "lf~w",
+            Let => "le~w",
+            Lot => "lo~w",
+            Lan => "laN",
+            VidhiLin => "li~N",
+            AshirLin => "li~N",
+            Lun => "lu~N",
+            Lrn => "lf~N",
+        }
+    }
+
     /// Returns whether or not this lakara is Nit.
     pub(crate) fn is_nit(&self) -> bool {
         matches![
@@ -154,42 +181,59 @@ impl Lakara {
     }
 }
 
-/// The pada of some tinanta or krdanta.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+/// The pada of some *tiṅanta* or *kṛdanta*.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[wasm_bindgen]
 pub enum DhatuPada {
-    /// Parasmaipada.
-    Parasmai,
-    /// Atmanepada.
-    Atmane,
+    /// *Parasmaipada*.
+    Parasmaipada,
+    /// *Ātmanepada*.
+    Atmanepada,
 }
 
-enum_boilerplate!(DhatuPada, {
-    Parasmai => "parasmai",
-    Atmane => "atmane",
+sanskrit_enum!(DhatuPada, {
+    Parasmaipada => "parasmEpadam",
+    Atmanepada => "Atmanepadam",
 });
 
 impl DhatuPada {
     pub(crate) fn as_tag(&self) -> Tag {
         match self {
-            Self::Parasmai => Tag::Parasmaipada,
-            Self::Atmane => Tag::Atmanepada,
+            Self::Parasmaipada => Tag::Parasmaipada,
+            Self::Atmanepada => Tag::Atmanepada,
         }
     }
 }
 
-/// The information required to derive a tinanta in the grammar.
+/// The information required to derive a *tiṅanta*.
 ///
-/// If a tinanta were just a matter of prayoga/purusha/lakara/vacana, a struct like this would not
-/// be necessary. However, a tinanta's derivation can have many other constraints, including:
+/// A *tiṅanta* (verb) is any word that ends with one of the eighteen suffixes in the *tiṅ* list:
 ///
-/// - specific upasargas or other prefixes
-/// - specific sanAdi pratyayas
+/// | Singular    | Dual        | Plural      |
+/// |-------------|-------------|-------------|
+/// | *tip*       | *tas*       | *jhi (nti)* |
+/// | *sip*       | *tas*       | *tha*       |
+/// | *mip*       | *vas*       | *mas*       |
+///
+/// | Singular    | Dual        | Plural      |
+/// |-------------|-------------|-------------|
+/// | *ta*        | *ātām*      | *jha (nta)* |
+/// | *thās*      | *āthām*     | *dhvam*     |
+/// | *iṭ*        | *vahi*      | *mahiṅ*     |
+///
+/// If a *tiṅanta* were just a matter of prayoga/purusha/lakara/vacana, a struct like this would
+/// not be necessary. However, a *tiṅanta*'s derivation can have many other constraints, including:
+///
+/// - specific *upasarga*s or other prefixes
+/// - specific *sanādi pratyaya*s
+/// - whether or not we should skip adding the *aṭ*/*āṭ* *āgama* for certain past forms.
 /// - other constraints on the overall derivation
 ///
 /// Since we want to keep these args manageable and don't want to repeatedly break our main API, we
 /// decided to wrap args in this struct and expose its values through accessors.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Tinanta {
     dhatu: Dhatu,
     prayoga: Prayoga,
@@ -197,6 +241,7 @@ pub struct Tinanta {
     purusha: Purusha,
     vacana: Vacana,
     pada: Option<DhatuPada>,
+    skip_at_agama: bool,
 }
 
 impl Tinanta {
@@ -217,6 +262,7 @@ impl Tinanta {
             purusha,
             vacana,
             pada: None,
+            skip_at_agama: false,
         }
     }
 
@@ -240,9 +286,14 @@ impl Tinanta {
         self.lakara
     }
 
-    /// The vacana to use in the derivation.
+    /// The *vacana* to use in the derivation.
     pub fn vacana(&self) -> Vacana {
         self.vacana
+    }
+
+    /// Whether or not the *aṭ* and *āṭ* *āgama*s should be skipped in the derivation.
+    pub fn skip_at_agama(&self) -> bool {
+        self.skip_at_agama
     }
 
     /// (optional) The pada to use in the derivation.
@@ -273,10 +324,10 @@ impl Tinanta {
 /// ### Example
 ///
 /// ````
-/// # use vidyut_prakriya::args::*;
-/// # use vidyut_prakriya::Error;
+/// # use vidyut_prakriya::*;
+/// use vidyut_prakriya::args::*;
 ///
-/// let dhatu = Dhatu::mula("BU", Gana::Bhvadi);
+/// let dhatu = Dhatu::mula(Slp1String::from("BU")?, Gana::Bhvadi);
 /// let args = Tinanta::builder()
 ///     .dhatu(dhatu)
 ///     .lakara(Lakara::Lat)
@@ -294,6 +345,7 @@ pub struct TinantaArgsBuilder {
     lakara: Option<Lakara>,
     vacana: Option<Vacana>,
     pada: Option<DhatuPada>,
+    skip_at_agama: bool,
 }
 
 impl TinantaArgsBuilder {
@@ -324,6 +376,12 @@ impl TinantaArgsBuilder {
     /// Sets the vacana to use in the derivation.
     pub fn vacana(mut self, val: Vacana) -> Self {
         self.vacana = Some(val);
+        self
+    }
+
+    /// Sets whether or not to skip the `a` Agama in the derivation.
+    pub fn skip_at_agama(mut self, val: bool) -> Self {
+        self.skip_at_agama = val;
         self
     }
 
@@ -362,6 +420,7 @@ impl TinantaArgsBuilder {
                 _ => return Err(Error::missing_required_field("vacana")),
             },
             pada: self.pada,
+            skip_at_agama: self.skip_at_agama,
         })
     }
 }

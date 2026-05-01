@@ -1,12 +1,16 @@
+use crate::args::macros::sanskrit_enum;
 use crate::args::tin::Vacana;
 use crate::args::Pratipadika;
 use crate::core::errors::Error;
 use crate::core::Tag;
-use crate::enum_boilerplate;
 use wasm_bindgen::prelude::wasm_bindgen;
 
-/// The gender of some subanta.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
+
+/// The gender of some *subanta*.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[wasm_bindgen]
 pub enum Linga {
     /// The masculine.
@@ -17,10 +21,10 @@ pub enum Linga {
     Napumsaka,
 }
 
-enum_boilerplate!(Linga, {
-    Pum => "pum",
-    Stri => "stri",
-    Napumsaka => "napumsaka"
+sanskrit_enum!(Linga, {
+    Pum => "puM",
+    Stri => "strI",
+    Napumsaka => "napuMsaka"
 });
 
 impl Linga {
@@ -33,42 +37,49 @@ impl Linga {
     }
 }
 
-/// The case ending of some subanta.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+/// The case ending of some *subanta*.
+///
+/// A *vibhakti* is a set of 3 endings that share all of the same properties except for their
+/// number (singular, dual, plural). While *tiṅanta*s also have *vibhakti*s, in practice the term
+/// *vibhakti* refers more specifically to the endings used with *subanta*s.
+///
+/// *Vibhakti* is broadly similar to the Western notion of grammatical case.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[wasm_bindgen]
 pub enum Vibhakti {
-    /// The first vibhakti . Sometimes called the *nominative case*.
+    /// The first *vibhakti*. Sometimes called the *nominative case*.
     Prathama,
-    /// The second vibhakti. Sometimes called the *accusative case*.
+    /// The second *vibhakti*. Sometimes called the *accusative case*.
     Dvitiya,
-    /// The third vibhakti. Sometimes called the *instrumental case*.
+    /// The third *vibhakti*. Sometimes called the *instrumental case*.
     Trtiya,
-    /// The fourth vibhakti. Sometimes called the *dative case*.
+    /// The fourth *vibhakti*. Sometimes called the *dative case*.
     Caturthi,
-    /// The fifth vibhakti. Sometimes called the *ablative case*.
+    /// The fifth *vibhakti*. Sometimes called the *ablative case*.
     Panchami,
-    /// The sixth vibhakti. Sometimes called the *genitive case*.
+    /// The sixth *vibhakti*. Sometimes called the *genitive case*.
     Sasthi,
-    /// The seventh vibhakti. Sometimes called the *locative case*.
+    /// The seventh *vibhakti*. Sometimes called the *locative case*.
     Saptami,
-    /// The first vibhakti used in the sense of *sambodhana*. Sometimes called the *vocative case*.
+    /// The first *vibhakti* used in the sense of *sambodhana*. Sometimes called the *vocative case*.
     ///
-    /// *Sambodhana* is technically not a *vibhakti but rather an additional semantic condition
+    /// *Sambodhana* is technically not a *vibhakti* but rather an additional semantic condition
     /// on the first vibhakti. But we felt that users would find it more convenient to have this
     /// condition available on `Vibhakti` directly rather than have to define the *sambodhana*
     /// condition separately.
     Sambodhana,
 }
 
-enum_boilerplate!(Vibhakti, {
-    Prathama => "1",
-    Dvitiya => "2",
-    Trtiya => "3",
-    Caturthi => "4",
-    Panchami => "5",
-    Sasthi => "6",
-    Saptami => "7",
-    Sambodhana => "s",
+sanskrit_enum!(Vibhakti, {
+    Prathama => "praTamA",
+    Dvitiya => "dvitIyA",
+    Trtiya => "tftIyA",
+    Caturthi => "caturTI",
+    Panchami => "paYcamI",
+    Sasthi => "zazWI",
+    Saptami => "saptamI",
+    Sambodhana => "samboDanam",
 });
 
 impl Vibhakti {
@@ -86,8 +97,21 @@ impl Vibhakti {
     }
 }
 
-/// The information required to derive a subanta in the grammar.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+/// The information required to derive a *subanta*.
+///
+/// A *subanta* is any word that ends with one of the twenty-one suffixes in the *sup* list:
+///
+/// | Singular  | Dual      | Plural    |
+/// |-----------|-----------|-----------|
+/// | su        । au        । jas       |
+/// | am        । auṭ       । śas       |
+/// | ṭā        । bhyām     । bhis      |
+/// | ṅe        । bhyām     । bhyas     |
+/// | ṅasi      । bhyām     । bhyas     |
+/// | ṅas       । os        । ām        |
+/// | ṅi        । os        । sup       |
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Subanta {
     pratipadika: Pratipadika,
     linga: Linga,
@@ -114,7 +138,7 @@ impl Subanta {
         }
     }
 
-    /// Creates a subanta.
+    /// Defines a *subanta* that is also an *avyaya*.
     pub fn avyaya(pratipadika: impl Into<Pratipadika>) -> Self {
         let pratipadika = pratipadika.into();
         Self {
@@ -141,17 +165,17 @@ impl Subanta {
         self.linga
     }
 
-    /// The vacana to use in the derivation.
+    /// The *vacana* to use in the derivation.
     pub fn vacana(&self) -> Vacana {
         self.vacana
     }
 
-    /// The vibhakti to use in the derivation.
+    /// The *vibhakti* to use in the derivation.
     pub fn vibhakti(&self) -> Vibhakti {
         self.vibhakti
     }
 
-    /// Returns whether or not this subanta is an avyaya.
+    /// Returns whether or not this *subanta* is an *avyaya*.
     pub fn is_avyaya(&self) -> bool {
         self.is_avyaya
     }
@@ -179,13 +203,13 @@ impl SubantaBuilder {
         self
     }
 
-    /// Sets the vacana to use in the derivation.
+    /// Sets the *vacana* to use in the derivation.
     pub fn vacana(&mut self, val: Vacana) -> &mut Self {
         self.vacana = Some(val);
         self
     }
 
-    /// Sets the vibhakti to use in the derivation.
+    /// Sets the *vibhakti* to use in the derivation.
     pub fn vibhakti(&mut self, val: Vibhakti) -> &mut Self {
         self.vibhakti = Some(val);
         self

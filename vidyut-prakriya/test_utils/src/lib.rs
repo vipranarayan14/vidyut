@@ -6,6 +6,7 @@ manage the boilerplate required for these assertions.
 */
 extern crate vidyut_prakriya;
 
+use std::convert::TryInto;
 use vidyut_prakriya::args::Antargana;
 use vidyut_prakriya::args::DhatuPada::*;
 use vidyut_prakriya::args::Prayoga::*;
@@ -14,12 +15,70 @@ use vidyut_prakriya::args::SamasaType::*;
 use vidyut_prakriya::args::Vacana::*;
 use vidyut_prakriya::args::Vibhakti::*;
 use vidyut_prakriya::args::*;
-use vidyut_prakriya::Prakriya;
-use vidyut_prakriya::Rule;
 use vidyut_prakriya::Vyakarana;
+use vidyut_prakriya::{Decision, Prakriya};
+pub use vidyut_prakriya::{Rule, RuleChoice};
 
 fn pum_s(pratipadika: Pratipadika, vibhakti: Vibhakti) -> Subanta {
     Subanta::new(pratipadika, Linga::Pum, vibhakti, Vacana::Eka)
+}
+
+/// A wrapper for `Pratipadika` that supports From<&str> (as opposed to TryFrom<&str>).
+#[derive(Clone)]
+pub struct SafePratipadika(pub Pratipadika);
+
+impl From<&str> for SafePratipadika {
+    fn from(val: &str) -> Self {
+        Self(Pratipadika::basic(Slp1String::from(val).expect("ok")))
+    }
+}
+
+impl From<&Krdanta> for SafePratipadika {
+    fn from(val: &Krdanta) -> Self {
+        Self(val.into())
+    }
+}
+
+impl From<Krdanta> for SafePratipadika {
+    fn from(val: Krdanta) -> Self {
+        Self(val.into())
+    }
+}
+
+impl From<&Pratipadika> for SafePratipadika {
+    fn from(val: &Pratipadika) -> Self {
+        Self(val.into())
+    }
+}
+
+impl From<Pratipadika> for SafePratipadika {
+    fn from(val: Pratipadika) -> Self {
+        Self(val)
+    }
+}
+
+impl From<Samasa> for SafePratipadika {
+    fn from(val: Samasa) -> Self {
+        Self(val.into())
+    }
+}
+
+impl From<&Samasa> for SafePratipadika {
+    fn from(val: &Samasa) -> Self {
+        Self(val.into())
+    }
+}
+
+impl From<&Taddhitanta> for SafePratipadika {
+    fn from(val: &Taddhitanta) -> Self {
+        Self(val.into())
+    }
+}
+
+impl From<Taddhitanta> for SafePratipadika {
+    fn from(val: Taddhitanta) -> Self {
+        Self(val.into())
+    }
 }
 
 /// A handy way to manage various assertions.
@@ -34,28 +93,197 @@ fn pum_s(pratipadika: Pratipadika, vibhakti: Vibhakti) -> Subanta {
 #[derive(Debug)]
 pub struct Tester {
     vyakarana: Vyakarana,
+    ignore_va_padantasya: bool,
 }
 
 impl Tester {
     /// Creates a tester with our default settings.
-    pub fn new(ashtadhyayi: Vyakarana) -> Self {
+    pub fn new(vyakarana: Vyakarana) -> Self {
         Self {
-            vyakarana: ashtadhyayi,
+            vyakarana,
+            ignore_va_padantasya: true,
         }
     }
 
     /// Creates a tester that enables chAndasa rules.
     pub fn with_chaandasa() -> Self {
-        Self {
-            vyakarana: Vyakarana::builder().is_chandasi(true).build(),
-        }
+        Self::new(Vyakarana::builder().is_chandasi(true).build())
+    }
+
+    // Creates a tester that enables certain rule choices
+    pub fn with_rule_choices(rule_choices: Vec<RuleChoice>) -> Self {
+        Self::new(Vyakarana::builder().rule_choices(rule_choices).build())
     }
 
     /// Creates a tester that enables svara rules.
     pub fn with_svara_rules() -> Self {
-        Self {
-            vyakarana: Vyakarana::builder().use_svaras(true).build(),
+        Self::new(Vyakarana::builder().use_svaras(true).build())
+    }
+
+    pub fn with_nlp_mode() -> Self {
+        Self::new(Vyakarana::builder().nlp_mode(true).build())
+    }
+
+    pub fn with_ignore_va_padantasya(mut self: Self, val: bool) -> Self {
+        self.ignore_va_padantasya = val;
+        self
+    }
+
+    /// Derives tinantas from the given conditions.
+    pub fn derive_tinantas(&self, args: &Tinanta) -> Vec<Prakriya> {
+        self.vyakarana.derive_tinantas(args)
+    }
+
+    /// Derives subantas from the given conditions.
+    pub fn derive_subantas(&self, args: &Subanta) -> Vec<Prakriya> {
+        self.vyakarana.derive_subantas(args)
+    }
+
+    /// Derives krdantas from the given conditions.
+    pub fn derive_krdantas(&self, args: &Krdanta) -> Vec<Prakriya> {
+        self.vyakarana.derive_krdantas(args)
+    }
+
+    /// Derives taddhitantas from the given conditions.
+    pub fn derive_taddhitantas(&self, args: &Taddhitanta) -> Vec<Prakriya> {
+        self.vyakarana.derive_taddhitantas(args)
+    }
+
+    /// Derives taddhitantas in a specific meaning context from the given conditions.
+    fn derive_artha_taddhitantas(
+        &self,
+        p: impl Into<SafePratipadika>,
+        t: Taddhita,
+        a: Option<TaddhitaArtha>,
+    ) -> Vec<Prakriya> {
+        let args = if let Some(a) = a {
+            Taddhitanta::builder()
+                .pratipadika(p.into().0)
+                .taddhita(t)
+                .artha(a)
+                .build()
+                .unwrap()
+        } else {
+            taddhitanta(p.into(), t)
+        };
+        self.derive_taddhitantas(&args)
+    }
+
+    /// Derives vakyas from the given initial conditions.
+    fn derive_vakyas(&self, padas: &[Pada]) -> Vec<Prakriya> {
+        self.vyakarana.derive_vakyas(padas)
+    }
+
+    /// Asserts that the given input conditions produce the tinantas `expected`.
+    pub fn assert_has_tinantas(&self, args: &Tinanta, expected: &[&str]) {
+        let mut actual = self.derive_tinantas(args);
+        if self.ignore_va_padantasya {
+            actual.retain(|p| !uses_va_padantasya(p) && !is_noisy_pada(p) && !has_bad_final(p));
         }
+        sort_and_dedup(&mut actual);
+        assert_has_results(actual, expected);
+    }
+
+    fn assert_has_subantas(
+        &self,
+        prati: &Pratipadika,
+        linga: Linga,
+        vibhakti: Vibhakti,
+        vacana: Vacana,
+        expected: &[&str],
+    ) {
+        let args = Subanta::builder()
+            .pratipadika(prati.clone())
+            .linga(linga)
+            .vacana(vacana)
+            .vibhakti(vibhakti)
+            .build()
+            .unwrap();
+        let mut actual = self.derive_subantas(&args);
+        if self.ignore_va_padantasya {
+            actual.retain(|p| !uses_va_padantasya(p) && !is_noisy_pada(p) && !has_bad_final(p));
+        }
+        sort_and_dedup(&mut actual);
+        assert_has_results(actual, expected);
+    }
+
+    pub fn assert_has_krdanta(
+        &self,
+        prefixes: &[&str],
+        dhatu: &Dhatu,
+        krt: impl Into<Krt>,
+        expected: &[&str],
+    ) {
+        let spec = Krdanta::builder()
+            .dhatu(dhatu.clone().with_prefixes(prefixes))
+            .krt(krt.into())
+            .build()
+            .unwrap();
+        let mut actual = self.derive_krdantas(&spec);
+        if self.ignore_va_padantasya {
+            actual.retain(|p| !uses_va_padantasya(p) && !is_noisy_pada(p));
+        }
+        sort_and_dedup(&mut actual);
+        assert_has_results(actual, expected);
+    }
+
+    pub fn assert_has_upapada_krdanta(
+        &self,
+        upapada: impl Into<SafePratipadika>,
+        prefixes: &[&str],
+        dhatu: &Dhatu,
+        krt: impl Into<Krt>,
+        expected: &[&str],
+    ) {
+        let args = upapada_krdanta(upapada, prefixes, dhatu, krt);
+        let mut actual = self.derive_krdantas(&args);
+        if self.ignore_va_padantasya {
+            actual.retain(|p| !uses_va_padantasya(p) && !is_noisy_pada(p));
+        }
+        assert_has_results(actual, expected);
+    }
+
+    pub fn assert_has_taddhita(
+        &self,
+        prati: impl Into<SafePratipadika>,
+        t: Taddhita,
+        expected: &[&str],
+    ) {
+        let pratipadika = prati.into();
+        let mut actual = self.derive_artha_taddhitantas(pratipadika.clone(), t, None);
+        if self.ignore_va_padantasya {
+            actual.retain(|p| !uses_va_padantasya(p));
+        }
+        assert_has_results(actual, expected);
+    }
+
+    pub fn assert_has_artha_taddhita(
+        &self,
+        prati: impl Into<SafePratipadika>,
+        requested_artha: TaddhitaArtha,
+        t: Taddhita,
+        expected: &[&str],
+    ) {
+        let mut actual = self.derive_artha_taddhitantas(prati.into(), t, Some(requested_artha));
+        actual.retain(|p| {
+            if let Some(Artha::Taddhita(prakriya_artha)) = p.artha() {
+                requested_artha.is_type_of(prakriya_artha)
+            } else {
+                false
+            }
+        });
+
+        if self.ignore_va_padantasya {
+            actual.retain(|p| !uses_va_padantasya(p) && !is_noisy_pada(p));
+        }
+        sort_and_dedup(&mut actual);
+        assert_has_results(actual, expected);
+    }
+
+    fn assert_has_vakya(&self, padas: &[Pada], expected: &[&str]) {
+        let mut prakriyas = self.vyakarana.derive_vakyas(padas);
+        prakriyas.retain(|p| !is_noisy_pada(p) && !has_bad_final(p));
+        assert_has_results(prakriyas, &expected);
     }
 }
 
@@ -69,26 +297,26 @@ impl Default for Tester {
 // ---------
 
 pub fn d(u: &str, g: Gana) -> Dhatu {
-    Dhatu::mula(u, g)
+    Dhatu::mula(u.try_into().expect("ok"), g)
 }
 
 pub fn d_kutadi(u: &str, g: Gana) -> Dhatu {
-    let mula = Muladhatu::new(u, g).with_antargana(Antargana::Kutadi);
+    let mula = Muladhatu::new(u.try_into().expect("ok"), g).with_antargana(Antargana::Kutadi);
     Dhatu::Mula(mula)
 }
 
 pub fn d_akusmiya(u: &str, g: Gana) -> Dhatu {
-    let mula = Muladhatu::new(u, g).with_antargana(Antargana::Akusmiya);
+    let mula = Muladhatu::new(u.try_into().expect("ok"), g).with_antargana(Antargana::Akusmiya);
     Dhatu::Mula(mula)
 }
 
 pub fn d_adhrshiya(u: &str, g: Gana) -> Dhatu {
-    let mula = Muladhatu::new(u, g).with_antargana(Antargana::Adhrshiya);
+    let mula = Muladhatu::new(u.try_into().expect("ok"), g).with_antargana(Antargana::Adhrshiya);
     Dhatu::Mula(mula)
 }
 
 pub fn d_ghatadi(u: &str, g: Gana) -> Dhatu {
-    let mula = Muladhatu::new(u, g).with_antargana(Antargana::Ghatadi);
+    let mula = Muladhatu::new(u.try_into().expect("ok"), g).with_antargana(Antargana::Ghatadi);
     Dhatu::Mula(mula)
 }
 
@@ -116,9 +344,21 @@ pub fn yan_nic(dhatu: &Dhatu) -> Dhatu {
     dhatu.clone().with_sanadi(&[Sanadi::yaN, Sanadi::Ric])
 }
 
+pub fn kyac(pratipadika: Pratipadika) -> Dhatu {
+    Dhatu::nama(pratipadika, Some(Sanadi::kyac))
+}
+
+pub fn kyan(pratipadika: Pratipadika) -> Dhatu {
+    Dhatu::nama(pratipadika, Some(Sanadi::kyaN))
+}
+
 /// Marks a dhatu as taking yaN-pratyaya with luk.
 pub fn yan_luk(dhatu: &Dhatu) -> Dhatu {
     dhatu.clone().with_sanadi(&[Sanadi::yaNluk])
+}
+
+pub fn phit(s: &str) -> Pratipadika {
+    Pratipadika::basic(Slp1String::from(s).expect("ok"))
 }
 
 pub fn krdanta(prefixes: &[&str], d: &Dhatu, krt: impl Into<Krt>) -> Krdanta {
@@ -130,12 +370,17 @@ pub fn krdanta(prefixes: &[&str], d: &Dhatu, krt: impl Into<Krt>) -> Krdanta {
 }
 
 pub fn upapada_krdanta(
-    upapada: impl Into<Pratipadika>,
+    upapada: impl Into<SafePratipadika>,
     prefixes: &[&str],
     d: &Dhatu,
     krt: impl Into<Krt>,
 ) -> Krdanta {
-    let upapada = Subanta::new(upapada.into(), Linga::Pum, Vibhakti::Prathama, Vacana::Eka);
+    let upapada = Subanta::new(
+        upapada.into().0,
+        Linga::Pum,
+        Vibhakti::Prathama,
+        Vacana::Eka,
+    );
     Krdanta::builder()
         .dhatu(d.clone().with_prefixes(prefixes))
         .krt(krt)
@@ -144,21 +389,21 @@ pub fn upapada_krdanta(
         .unwrap()
 }
 
-pub fn taddhitanta(prati: impl Into<Pratipadika>, taddhita: Taddhita) -> Taddhitanta {
+pub fn taddhitanta(prati: impl Into<SafePratipadika>, taddhita: Taddhita) -> Taddhitanta {
     Taddhitanta::builder()
-        .pratipadika(prati.into())
+        .pratipadika(prati.into().0)
         .taddhita(taddhita)
         .build()
         .unwrap()
 }
 
 pub fn artha_taddhitanta(
-    prati: impl Into<Pratipadika>,
+    prati: impl Into<SafePratipadika>,
     artha: TaddhitaArtha,
     taddhita: Taddhita,
 ) -> Taddhitanta {
     Taddhitanta::builder()
-        .pratipadika(prati.into())
+        .pratipadika(prati.into().0)
         .artha(artha)
         .taddhita(taddhita)
         .build()
@@ -167,35 +412,41 @@ pub fn artha_taddhitanta(
 
 /// Shorthand for building a pratipadika that ends with NI/Ap.
 pub fn nyap(text: &str) -> Pratipadika {
-    Pratipadika::nyap(text)
+    Pratipadika::nyap(text.try_into().expect("ok"))
 }
 
-pub fn karmadharaya(x: impl Into<Pratipadika>, y: impl Into<Pratipadika>) -> Samasa {
+pub fn karmadharaya(x: impl Into<SafePratipadika>, y: impl Into<SafePratipadika>) -> Samasa {
     use Vibhakti::*;
     Samasa::builder()
-        .padas(vec![pum_s(x.into(), Prathama), pum_s(y.into(), Prathama)])
+        .padas(vec![
+            pum_s(x.into().0, Prathama),
+            pum_s(y.into().0, Prathama),
+        ])
         .samasa_type(SamasaType::Karmadharaya)
         .build()
         .unwrap()
 }
 
 pub fn tatpurusha(
-    x: impl Into<Pratipadika>,
-    y: impl Into<Pratipadika>,
+    x: impl Into<SafePratipadika>,
+    y: impl Into<SafePratipadika>,
     vibhakti: Vibhakti,
 ) -> Samasa {
     use Vibhakti::*;
     Samasa::builder()
-        .padas(vec![pum_s(x.into(), vibhakti), pum_s(y.into(), Prathama)])
+        .padas(vec![
+            pum_s(x.into().0, vibhakti),
+            pum_s(y.into().0, Prathama),
+        ])
         .samasa_type(SamasaType::Tatpurusha)
         .build()
         .unwrap()
 }
 
-pub fn avyaya_tatpurusha(x: impl Into<Pratipadika>, y: impl Into<Pratipadika>) -> Samasa {
+pub fn avyaya_tatpurusha(x: impl Into<SafePratipadika>, y: impl Into<SafePratipadika>) -> Samasa {
     let padas = vec![
-        Subanta::avyaya(x.into()),
-        Subanta::new(y.into(), Linga::Pum, Vibhakti::Prathama, Vacana::Eka),
+        Subanta::avyaya(x.into().0),
+        Subanta::new(y.into().0, Linga::Pum, Vibhakti::Prathama, Vacana::Eka),
     ];
     Samasa::builder()
         .padas(padas)
@@ -204,10 +455,13 @@ pub fn avyaya_tatpurusha(x: impl Into<Pratipadika>, y: impl Into<Pratipadika>) -
         .unwrap()
 }
 
-pub fn bahuvrihi(x: impl Into<Pratipadika>, y: impl Into<Pratipadika>) -> Samasa {
+pub fn bahuvrihi(x: impl Into<SafePratipadika>, y: impl Into<SafePratipadika>) -> Samasa {
     use Vibhakti::*;
     Samasa::builder()
-        .padas(vec![pum_s(x.into(), Prathama), pum_s(y.into(), Prathama)])
+        .padas(vec![
+            pum_s(x.into().0, Prathama),
+            pum_s(y.into().0, Prathama),
+        ])
         .samasa_type(SamasaType::Bahuvrihi)
         .build()
         .unwrap()
@@ -216,36 +470,6 @@ pub fn bahuvrihi(x: impl Into<Pratipadika>, y: impl Into<Pratipadika>) -> Samasa
 /// ------------------------------------------------------------------------------------
 /// Tinantas
 /// ------------------------------------------------------------------------------------
-
-impl Tester {
-    /// Derives tinantas from the given initial conditions.
-    pub fn derive_tinantas(&self, args: &Tinanta) -> Vec<Prakriya> {
-        self.vyakarana.derive_tinantas(args)
-    }
-
-    /// Asserts that the given input conditions produce the tinantas `expected`.
-    fn assert_has_tinantas(
-        &self,
-        prefixes: &[&str],
-        dhatu: &Dhatu,
-        lakara: Lakara,
-        purusha: Purusha,
-        vacana: Vacana,
-        expected: &[&str],
-    ) {
-        let args = Tinanta::builder()
-            .dhatu(dhatu.clone().with_prefixes(prefixes))
-            .prayoga(Prayoga::Kartari)
-            .purusha(purusha)
-            .vacana(vacana)
-            .lakara(lakara)
-            .build()
-            .unwrap();
-        let actual = self.derive_tinantas(&args);
-        let actual = sanitize_results(actual);
-        assert_has_results(actual, expected);
-    }
-}
 
 /// Checks the given combination of `dhatu` and `prefixes` produces the `expected` results given
 /// this `lakara`/`purusha`/`vacana` combination.
@@ -258,7 +482,15 @@ pub fn assert_has_tinantas(
     expected: &[&str],
 ) {
     let t = Tester::default();
-    t.assert_has_tinantas(prefixes, dhatu, lakara, purusha, vacana, expected);
+    let args = Tinanta::builder()
+        .dhatu(dhatu.clone().with_prefixes(prefixes))
+        .prayoga(Prayoga::Kartari)
+        .purusha(purusha)
+        .vacana(vacana)
+        .lakara(lakara)
+        .build()
+        .unwrap();
+    t.assert_has_tinantas(&args, expected);
 }
 
 /// Creates a function alias `fn_name` that points to the method of the same name on a default
@@ -282,9 +514,7 @@ macro_rules! test_tin {
                     .pada($pada)
                     .build()
                     .unwrap();
-                let actual = self.derive_tinantas(&args);
-                let actual = sanitize_results(actual);
-                assert_has_results(actual, expected);
+                self.assert_has_tinantas(&args, expected);
             }
         }
 
@@ -295,48 +525,49 @@ macro_rules! test_tin {
     };
 }
 
-test_tin!(assert_has_tip, Kartari, P::Prathama, Eka, Parasmai);
-test_tin!(assert_has_tas, Kartari, P::Prathama, Dvi, Parasmai);
-test_tin!(assert_has_jhi, Kartari, P::Prathama, Bahu, Parasmai);
-test_tin!(assert_has_sip, Kartari, P::Madhyama, Eka, Parasmai);
-test_tin!(assert_has_thas, Kartari, P::Madhyama, Dvi, Parasmai);
-test_tin!(assert_has_tha, Kartari, P::Madhyama, Bahu, Parasmai);
-test_tin!(assert_has_mip, Kartari, P::Uttama, Eka, Parasmai);
-test_tin!(assert_has_vas, Kartari, P::Uttama, Dvi, Parasmai);
-test_tin!(assert_has_mas, Kartari, P::Uttama, Bahu, Parasmai);
+test_tin!(assert_has_tip, Kartari, P::Prathama, Eka, Parasmaipada);
+test_tin!(assert_has_tas, Kartari, P::Prathama, Dvi, Parasmaipada);
+test_tin!(assert_has_jhi, Kartari, P::Prathama, Bahu, Parasmaipada);
+test_tin!(assert_has_sip, Kartari, P::Madhyama, Eka, Parasmaipada);
+test_tin!(assert_has_thas, Kartari, P::Madhyama, Dvi, Parasmaipada);
+test_tin!(assert_has_tha, Kartari, P::Madhyama, Bahu, Parasmaipada);
+test_tin!(assert_has_mip, Kartari, P::Uttama, Eka, Parasmaipada);
+test_tin!(assert_has_vas, Kartari, P::Uttama, Dvi, Parasmaipada);
+test_tin!(assert_has_mas, Kartari, P::Uttama, Bahu, Parasmaipada);
 
-test_tin!(assert_has_ta, Kartari, P::Prathama, Eka, Atmane);
-test_tin!(assert_has_aataam, Kartari, P::Prathama, Dvi, Atmane);
-test_tin!(assert_has_jha, Kartari, P::Prathama, Bahu, Atmane);
-test_tin!(assert_has_thaas, Kartari, P::Madhyama, Eka, Atmane);
-test_tin!(assert_has_aathaam, Kartari, P::Madhyama, Dvi, Atmane);
-test_tin!(assert_has_dhvam, Kartari, P::Madhyama, Bahu, Atmane);
-test_tin!(assert_has_iw, Kartari, P::Uttama, Eka, Atmane);
-test_tin!(assert_has_vahi, Kartari, P::Uttama, Dvi, Atmane);
-test_tin!(assert_has_mahin, Kartari, P::Uttama, Bahu, Atmane);
+test_tin!(assert_has_ta, Kartari, P::Prathama, Eka, Atmanepada);
+test_tin!(assert_has_aataam, Kartari, P::Prathama, Dvi, Atmanepada);
+test_tin!(assert_has_jha, Kartari, P::Prathama, Bahu, Atmanepada);
+test_tin!(assert_has_thaas, Kartari, P::Madhyama, Eka, Atmanepada);
+test_tin!(assert_has_aathaam, Kartari, P::Madhyama, Dvi, Atmanepada);
+test_tin!(assert_has_dhvam, Kartari, P::Madhyama, Bahu, Atmanepada);
+test_tin!(assert_has_iw, Kartari, P::Uttama, Eka, Atmanepada);
+test_tin!(assert_has_vahi, Kartari, P::Uttama, Dvi, Atmanepada);
+test_tin!(assert_has_mahin, Kartari, P::Uttama, Bahu, Atmanepada);
 
-test_tin!(assert_has_ta_k, Karmani, P::Prathama, Eka, Atmane);
-test_tin!(assert_has_aataam_k, Karmani, P::Prathama, Dvi, Atmane);
-test_tin!(assert_has_jha_k, Karmani, P::Prathama, Bahu, Atmane);
-test_tin!(assert_has_thaas_k, Karmani, P::Madhyama, Eka, Atmane);
-test_tin!(assert_has_aathaam_k, Karmani, P::Madhyama, Dvi, Atmane);
-test_tin!(assert_has_dhvam_k, Karmani, P::Madhyama, Bahu, Atmane);
-test_tin!(assert_has_iw_k, Karmani, P::Uttama, Eka, Atmane);
-test_tin!(assert_has_vahi_k, Karmani, P::Uttama, Dvi, Atmane);
-test_tin!(assert_has_mahin_k, Karmani, P::Uttama, Bahu, Atmane);
+test_tin!(assert_has_ta_k, Karmani, P::Prathama, Eka, Atmanepada);
+test_tin!(assert_has_aataam_k, Karmani, P::Prathama, Dvi, Atmanepada);
+test_tin!(assert_has_jha_k, Karmani, P::Prathama, Bahu, Atmanepada);
+test_tin!(assert_has_thaas_k, Karmani, P::Madhyama, Eka, Atmanepada);
+test_tin!(assert_has_aathaam_k, Karmani, P::Madhyama, Dvi, Atmanepada);
+test_tin!(assert_has_dhvam_k, Karmani, P::Madhyama, Bahu, Atmanepada);
+test_tin!(assert_has_iw_k, Karmani, P::Uttama, Eka, Atmanepada);
+test_tin!(assert_has_vahi_k, Karmani, P::Uttama, Dvi, Atmanepada);
+test_tin!(assert_has_mahin_k, Karmani, P::Uttama, Bahu, Atmanepada);
 
 macro_rules! test_la {
     ($fn_name:ident, $la:expr) => {
         pub fn $fn_name(prefixes: &[&str], dhatu: &Dhatu, expected: &[&str]) {
             let t = Tester::default();
-            t.assert_has_tinantas(
-                prefixes,
-                dhatu,
-                $la,
-                Purusha::Prathama,
-                Vacana::Eka,
-                expected,
-            );
+            let args = Tinanta::builder()
+                .dhatu(dhatu.clone().with_prefixes(prefixes))
+                .prayoga(Prayoga::Kartari)
+                .purusha(Purusha::Prathama)
+                .vacana(Vacana::Eka)
+                .lakara($la)
+                .build()
+                .unwrap();
+            t.assert_has_tinantas(&args, expected);
         }
     };
 }
@@ -356,44 +587,22 @@ test_la!(assert_has_lrn, Lakara::Lrn);
 /// Subantas
 /// ------------------------------------------------------------------------------------
 
-impl Tester {
-    /// Derives tinantas from the given initial conditions.
-    fn derive_subantas(&self, args: &Subanta) -> Vec<Prakriya> {
-        self.vyakarana.derive_subantas(args)
-    }
-
-    fn assert_has_subantas(
-        &self,
-        prati: &Pratipadika,
-        linga: Linga,
-        vibhakti: Vibhakti,
-        vacana: Vacana,
-        expected: &[&str],
-    ) {
-        let args = Subanta::builder()
-            .pratipadika(prati.clone())
-            .linga(linga)
-            .vacana(vacana)
-            .vibhakti(vibhakti)
-            .build()
-            .unwrap();
-        let prakriyas = self.derive_subantas(&args);
-        let actual = sanitize_results(prakriyas);
-        assert_has_results(actual, expected);
-    }
-}
-
 macro_rules! assert_sup {
     ($fn_name:ident, $vibhakti:expr, $vacana:expr) => {
         impl Tester {
-            pub fn $fn_name(&self, prati: impl Into<Pratipadika>, linga: Linga, expected: &[&str]) {
-                self.assert_has_subantas(&prati.into(), linga, $vibhakti, $vacana, &expected);
+            pub fn $fn_name(
+                &self,
+                prati: impl Into<SafePratipadika>,
+                linga: Linga,
+                expected: &[&str],
+            ) {
+                self.assert_has_subantas(&prati.into().0, linga, $vibhakti, $vacana, &expected);
             }
         }
 
-        pub fn $fn_name(prati: impl Into<Pratipadika>, linga: Linga, expected: &[&str]) {
+        pub fn $fn_name(prati: impl Into<SafePratipadika>, linga: Linga, expected: &[&str]) {
             let t = Tester::default();
-            t.assert_has_subantas(&prati.into(), linga, $vibhakti, $vacana, &expected);
+            t.assert_has_subantas(&prati.into().0, linga, $vibhakti, $vacana, &expected);
         }
     };
 }
@@ -425,9 +634,9 @@ assert_sup!(assert_has_sup_sp, Sambodhana, Bahu);
 
 macro_rules! create_sup {
     ($fn_name:ident, $vibhakti:expr, $vacana:expr) => {
-        pub fn $fn_name(_expected: &str, prati: impl Into<Pratipadika>, linga: Linga) -> Pada {
+        pub fn $fn_name(_expected: &str, prati: impl Into<SafePratipadika>, linga: Linga) -> Pada {
             Subanta::builder()
-                .pratipadika(prati.into())
+                .pratipadika(prati.into().0)
                 .linga(linga)
                 .vibhakti($vibhakti)
                 .vacana($vacana)
@@ -472,7 +681,7 @@ pub fn assert_has_subantas_raw(
     vacana: Vacana,
     expected: &[&str],
 ) {
-    let pratipadika = Pratipadika::basic(pratipadika_text);
+    let pratipadika = Pratipadika::basic(pratipadika_text.try_into().expect("ok"));
     let v = Vyakarana::new();
     let args = Subanta::builder()
         .pratipadika(pratipadika)
@@ -493,33 +702,6 @@ pub fn assert_has_subantas_raw(
 /// Krdantas
 /// ------------------------------------------------------------------------------------
 
-impl Tester {
-    fn derive_krdantas(&self, args: &Krdanta) -> Vec<Prakriya> {
-        self.vyakarana.derive_krdantas(args)
-    }
-
-    pub fn assert_has_krt(
-        &self,
-        prefixes: &[&str],
-        dhatu: &Dhatu,
-        krt: impl Into<Krt>,
-        expected: &[&str],
-    ) {
-        let spec = Krdanta::builder()
-            .dhatu(dhatu.clone().with_prefixes(prefixes))
-            .krt(krt.into())
-            .build()
-            .unwrap();
-        let mut prakriyas = self.derive_krdantas(&spec);
-        prakriyas.sort_by_key(|p| p.text());
-        prakriyas.dedup_by_key(|p| p.text());
-        // Allowed in pada sandhi, but noisy here.
-        prakriyas.retain(|p| !p.text().contains("cS"));
-
-        assert_has_results(prakriyas, expected);
-    }
-}
-
 pub fn assert_has_krdanta(
     prefixes: &[&str],
     dhatu: &Dhatu,
@@ -527,7 +709,7 @@ pub fn assert_has_krdanta(
     expected: &[&str],
 ) {
     let t = Tester::default();
-    t.assert_has_krt(prefixes, dhatu, krt, expected);
+    t.assert_has_krdanta(prefixes, dhatu, krt, expected);
 }
 
 pub fn assert_has_artha_krdanta(
@@ -537,35 +719,36 @@ pub fn assert_has_artha_krdanta(
     krt: impl Into<Krt>,
     expected: &[&str],
 ) {
-    let v = Vyakarana::new();
     let krdanta = Krdanta::builder()
         .dhatu(dhatu.clone().with_prefixes(upapadas))
         .krt(krt.into())
         .artha(requested_artha)
         .build()
         .unwrap();
-    let mut prakriyas = derive_krdantas(&v, &krdanta);
 
-    prakriyas.retain(|p| {
+    let t = Tester::default();
+    let mut actual = t.derive_krdantas(&krdanta);
+    actual.retain(|p| {
         if let Some(Artha::Krt(prakriya_artha)) = p.artha() {
             requested_artha == prakriya_artha
         } else {
             false
         }
     });
-    assert_has_results(prakriyas, expected);
+
+    actual.retain(|p| !uses_va_padantasya(p) && !is_noisy_pada(p));
+    assert_has_results(actual, expected);
 }
 
 pub fn assert_has_upapada_krdanta(
-    upapada: impl Into<Pratipadika>,
+    upapada: impl Into<SafePratipadika>,
     prefixes: &[&str],
     dhatu: &Dhatu,
     krt: impl Into<Krt>,
     expected: &[&str],
 ) {
-    let v = Vyakarana::new();
-    let args = upapada_krdanta(upapada, prefixes, dhatu, krt);
-    assert_has_results(derive_krdantas(&v, &args), expected);
+    let t = Tester::default();
+    t.assert_has_upapada_krdanta(upapada, prefixes, dhatu, krt, expected);
 }
 
 /// Creates a krdanta as a pratipadika.
@@ -593,78 +776,16 @@ pub fn create_upapada_krdanta(
     upapada_krdanta(upapada, prefixes, d, krt).with_require(text)
 }
 
-/// Derives krdantas from the given initial conditions.
-fn derive_krdantas(a: &Vyakarana, krdanta: &Krdanta) -> Vec<Prakriya> {
-    let mut results = a.derive_krdantas(krdanta);
-    results.sort_by_key(|p| p.text());
-    results.dedup_by_key(|p| p.text());
-    // Allowed in pada sandhi, but noisy here.
-    results.retain(|p| !p.text().contains("cS"));
-    results
-}
-
 /// ------------------------------------------------------------------------------------
 /// Taddhitantas
 /// ------------------------------------------------------------------------------------
-
-impl Tester {
-    /// Derives taddhitantas from the given initial conditions.
-    fn derive_taddhitantas(&self, args: &Taddhitanta) -> Vec<Prakriya> {
-        self.vyakarana.derive_taddhitantas(args)
-    }
-
-    /// Derives taddhitantas from the given initial conditions.
-    fn derive_artha_taddhitantas(
-        &self,
-        p: impl Into<Pratipadika>,
-        t: Taddhita,
-        a: Option<TaddhitaArtha>,
-    ) -> Vec<Prakriya> {
-        let args = if let Some(a) = a {
-            Taddhitanta::builder()
-                .pratipadika(p.into())
-                .taddhita(t)
-                .artha(a)
-                .build()
-                .unwrap()
-        } else {
-            taddhitanta(p.into(), t)
-        };
-        let results = self.derive_taddhitantas(&args);
-        sanitize_results(results)
-    }
-
-    pub fn assert_has_artha_taddhita(
-        &self,
-        prati: impl Into<Pratipadika>,
-        requested_artha: TaddhitaArtha,
-        t: Taddhita,
-        expected: &[&str],
-    ) {
-        let mut prakriyas = self.derive_artha_taddhitantas(prati.into(), t, Some(requested_artha));
-        prakriyas.retain(|p| {
-            if let Some(Artha::Taddhita(prakriya_artha)) = p.artha() {
-                requested_artha.is_type_of(prakriya_artha)
-            } else {
-                false
-            }
-        });
-        assert_has_results(prakriyas, expected);
-    }
-
-    pub fn assert_has_taddhita(&self, prati: &str, t: Taddhita, expected: &[&str]) {
-        let pratipadika = Pratipadika::basic(prati);
-        let prakriyas = self.derive_artha_taddhitantas(pratipadika.clone(), t, None);
-        assert_has_results(prakriyas, expected);
-    }
-}
 
 /// Creates a krdanta as a pratipadika.
 ///
 /// This function is a shorthand that lets us test certain subanta forms more easily.
 pub fn create_taddhitanta(
     text: &str,
-    base: impl Into<Pratipadika>,
+    base: impl Into<SafePratipadika>,
     taddhita: Taddhita,
 ) -> Taddhitanta {
     taddhitanta(base, taddhita).with_require(text)
@@ -675,27 +796,29 @@ pub fn create_taddhitanta(
 /// This function is a shorthand that lets us test certain subanta forms more easily.
 pub fn create_artha_taddhita(
     _text: &str,
-    base: impl Into<Pratipadika>,
+    base: impl Into<SafePratipadika>,
     artha: TaddhitaArtha,
     taddhita: Taddhita,
 ) -> Taddhitanta {
     Taddhitanta::builder()
-        .pratipadika(base.into())
+        .pratipadika(base.into().0)
         .taddhita(taddhita)
         .artha(artha)
         .build()
         .unwrap()
 }
 
-pub fn assert_has_taddhita(prati: impl Into<Pratipadika>, t: Taddhita, expected: &[&str]) {
-    let tester = Tester::default();
-    let results = tester.derive_artha_taddhitantas(prati.into(), t, None);
-    let results = sanitize_results(results);
-    assert_has_results(results, expected);
+pub fn assert_has_taddhita(
+    prati: impl Into<SafePratipadika>,
+    taddhita: Taddhita,
+    expected: &[&str],
+) {
+    let t = Tester::default();
+    t.assert_has_taddhita(prati.into(), taddhita, expected);
 }
 
 pub fn assert_has_artha_taddhita(
-    prati: impl Into<Pratipadika>,
+    prati: impl Into<SafePratipadika>,
     requested_artha: TaddhitaArtha,
     taddhita: Taddhita,
     expected: &[&str],
@@ -710,10 +833,13 @@ pub fn assert_has_artha_taddhita(
 
 impl Tester {
     pub fn assert_has_samasas(&self, args: &Samasa, expected: &[&str]) {
-        let mut prakriyas = self.vyakarana.derive_samasas(&args);
-        prakriyas.sort_by_key(|p| p.text());
-        prakriyas.dedup_by_key(|p| p.text());
-        assert_has_results(prakriyas, expected);
+        let mut actual = self.vyakarana.derive_samasas(&args);
+        if self.ignore_va_padantasya {
+            actual.retain(|p| !uses_va_padantasya(p));
+        }
+        actual.sort_by_key(|p| p.text());
+        actual.dedup_by_key(|p| p.text());
+        assert_has_results(actual, expected);
     }
 
     /// A simpler interface to `assert_has_samasas` that accepts exactly two items.
@@ -728,8 +854,8 @@ impl Tester {
 
     pub fn assert_has_bahuvrihi(
         &self,
-        a: impl Into<Pratipadika>,
-        b: impl Into<Pratipadika>,
+        a: impl Into<SafePratipadika>,
+        b: impl Into<SafePratipadika>,
         expected: &[&str],
     ) {
         self.assert_has_samasas(&bahuvrihi(a, b), expected);
@@ -737,13 +863,13 @@ impl Tester {
 
     fn assert_has_avyayibhava(
         &self,
-        a: impl Into<Pratipadika>,
-        b: impl Into<Pratipadika>,
+        a: impl Into<SafePratipadika>,
+        b: impl Into<SafePratipadika>,
         expected: &[&str],
     ) {
         let padas = vec![
-            Subanta::avyaya(a.into()),
-            Subanta::new(b.into(), Linga::Pum, Vibhakti::Prathama, Vacana::Eka),
+            Subanta::avyaya(a.into().0),
+            Subanta::new(b.into().0, Linga::Pum, Vibhakti::Prathama, Vacana::Eka),
         ];
         let args = Samasa::builder()
             .padas(padas)
@@ -766,8 +892,8 @@ impl Tester {
 
     pub fn assert_has_karmadharaya(
         &self,
-        a: impl Into<Pratipadika>,
-        b: impl Into<Pratipadika>,
+        a: impl Into<SafePratipadika>,
+        b: impl Into<SafePratipadika>,
         expected: &[&str],
     ) {
         self.assert_has_samasas(&karmadharaya(a, b), expected);
@@ -775,8 +901,8 @@ impl Tester {
 
     pub fn assert_has_dvitiya_tatpurusha(
         &self,
-        a: impl Into<Pratipadika>,
-        b: impl Into<Pratipadika>,
+        a: impl Into<SafePratipadika>,
+        b: impl Into<SafePratipadika>,
         expected: &[&str],
     ) {
         self.assert_has_samasas(&tatpurusha(a, b, Vibhakti::Dvitiya), expected);
@@ -784,8 +910,8 @@ impl Tester {
 
     pub fn assert_has_trtiya_tatpurusha(
         &self,
-        a: impl Into<Pratipadika>,
-        b: impl Into<Pratipadika>,
+        a: impl Into<SafePratipadika>,
+        b: impl Into<SafePratipadika>,
         expected: &[&str],
     ) {
         self.assert_has_samasas(&tatpurusha(a, b, Vibhakti::Trtiya), expected);
@@ -793,8 +919,8 @@ impl Tester {
 
     fn assert_has_caturthi_tatpurusha(
         &self,
-        a: impl Into<Pratipadika>,
-        b: impl Into<Pratipadika>,
+        a: impl Into<SafePratipadika>,
+        b: impl Into<SafePratipadika>,
         expected: &[&str],
     ) {
         self.assert_has_samasas(&tatpurusha(a, b, Vibhakti::Caturthi), expected);
@@ -802,8 +928,8 @@ impl Tester {
 
     fn assert_has_panchami_tatpurusha(
         &self,
-        a: impl Into<Pratipadika>,
-        b: impl Into<Pratipadika>,
+        a: impl Into<SafePratipadika>,
+        b: impl Into<SafePratipadika>,
         expected: &[&str],
     ) {
         self.assert_has_samasas(&tatpurusha(a, b, Vibhakti::Panchami), expected);
@@ -811,8 +937,8 @@ impl Tester {
 
     fn assert_has_sasthi_tatpurusha(
         &self,
-        a: impl Into<Pratipadika>,
-        b: impl Into<Pratipadika>,
+        a: impl Into<SafePratipadika>,
+        b: impl Into<SafePratipadika>,
         expected: &[&str],
     ) {
         self.assert_has_samasas(&tatpurusha(a, b, Vibhakti::Sasthi), expected);
@@ -820,8 +946,8 @@ impl Tester {
 
     fn assert_has_saptami_tatpurusha(
         &self,
-        a: impl Into<Pratipadika>,
-        b: impl Into<Pratipadika>,
+        a: impl Into<SafePratipadika>,
+        b: impl Into<SafePratipadika>,
         expected: &[&str],
     ) {
         self.assert_has_samasas(&tatpurusha(a, b, Vibhakti::Saptami), expected);
@@ -831,11 +957,24 @@ impl Tester {
 macro_rules! assert_samasa {
     ($fn_name:ident) => {
         pub fn $fn_name(
-            purva: impl Into<Pratipadika>,
-            uttara: impl Into<Pratipadika>,
+            purva: impl Into<SafePratipadika>,
+            uttara: impl Into<SafePratipadika>,
             expected: &[&str],
         ) {
             let t = Tester::default();
+            t.$fn_name(purva, uttara, expected);
+        }
+    };
+}
+
+macro_rules! assert_samasa_with_tester {
+    ($fn_name:ident, $wrapper_name:ident) => {
+        pub fn $wrapper_name(
+            t: Tester,
+            purva: impl Into<SafePratipadika>,
+            uttara: impl Into<SafePratipadika>,
+            expected: &[&str],
+        ) {
             t.$fn_name(purva, uttara, expected);
         }
     };
@@ -851,16 +990,22 @@ assert_samasa!(assert_has_panchami_tatpurusha);
 assert_samasa!(assert_has_sasthi_tatpurusha);
 assert_samasa!(assert_has_saptami_tatpurusha);
 
+assert_samasa_with_tester!(assert_has_sasthi_tatpurusha, assert_t_has_sasthi_tatpurusha);
+assert_samasa_with_tester!(
+    assert_has_saptami_tatpurusha,
+    assert_t_has_saptami_tatpurusha
+);
+
 pub fn assert_has_avyaya_tatpurusha(
-    first: impl Into<Pratipadika>,
-    second: impl Into<Pratipadika>,
+    first: impl Into<SafePratipadika>,
+    second: impl Into<SafePratipadika>,
     expected: &[&str],
 ) {
     let t = Tester::default();
     t.assert_samasa_of_type(
         &[
-            Subanta::avyaya(first.into()),
-            pum_s(second.into(), Prathama),
+            Subanta::avyaya(first.into().0),
+            pum_s(second.into().0, Prathama),
         ],
         Tatpurusha,
         expected,
@@ -868,8 +1013,8 @@ pub fn assert_has_avyaya_tatpurusha(
 }
 
 pub fn assert_has_misc_tatpurusha(
-    first: impl Into<Pratipadika>,
-    second: impl Into<Pratipadika>,
+    first: impl Into<SafePratipadika>,
+    second: impl Into<SafePratipadika>,
     expected: &[&str],
 ) {
     assert_has_sasthi_tatpurusha(first, second, expected);
@@ -880,7 +1025,12 @@ pub fn assert_has_dvandva(items: &[&str], expected: &[&str]) {
         .padas(
             items
                 .iter()
-                .map(|s| pum_s(Pratipadika::basic(s), Vibhakti::Prathama))
+                .map(|s| {
+                    pum_s(
+                        Pratipadika::basic((*s).try_into().expect("ok")),
+                        Vibhakti::Prathama,
+                    )
+                })
                 .collect(),
         )
         .samasa_type(Dvandva)
@@ -895,7 +1045,12 @@ pub fn assert_has_samahara_dvandva(items: &[&str], expected: &[&str]) {
         .padas(
             items
                 .iter()
-                .map(|s| pum_s(Pratipadika::basic(s), Vibhakti::Prathama))
+                .map(|s| {
+                    pum_s(
+                        Pratipadika::basic((*s).try_into().expect("ok")),
+                        Vibhakti::Prathama,
+                    )
+                })
                 .collect(),
         )
         .samasa_type(SamaharaDvandva)
@@ -910,8 +1065,8 @@ pub fn assert_has_samahara_dvandva(items: &[&str], expected: &[&str]) {
 /// This function is a shorthand that lets us test certain subanta forms more easily.
 pub fn create_avyaya_tatpurusha(
     _text: &str,
-    first: impl Into<Pratipadika>,
-    second: impl Into<Pratipadika>,
+    first: impl Into<SafePratipadika>,
+    second: impl Into<SafePratipadika>,
 ) -> Samasa {
     avyaya_tatpurusha(first, second)
 }
@@ -931,19 +1086,6 @@ pub fn assert_has_samasas(args: &Samasa, expected: &[&str]) {
 /// ------------------------------------------------------------------------------------
 /// Vakyas
 /// ------------------------------------------------------------------------------------
-
-impl Tester {
-    /// Derives vakyas from the given initial conditions.
-    fn derive_vakyas(&self, padas: &[Pada]) -> Vec<Prakriya> {
-        self.vyakarana.derive_vakyas(padas)
-    }
-
-    fn assert_has_vakya(&self, padas: &[Pada], expected: &[&str]) {
-        let prakriyas = self.vyakarana.derive_vakyas(padas);
-        let prakriyas = sanitize_results(prakriyas);
-        assert_has_results(prakriyas, &expected);
-    }
-}
 
 pub fn assert_has_vakya(first: &Pada, second: &Pada, expected: &[&str]) {
     let t = Tester::default();
@@ -969,15 +1111,24 @@ fn derive_vakyas(first: &str, second: &str) -> Vec<Prakriya> {
 // Derivation helpers
 // ------------------
 
-/// Sanitizes our test results by making them deterministic and predictable.
-fn sanitize_results(results: Vec<Prakriya>) -> Vec<Prakriya> {
-    results
-        .into_iter()
-        .filter(|p| {
-            let text = p.text();
-            !['d', 'q', 'g', 'b'].iter().any(|c| text.ends_with(*c)) && !text.contains("cS")
-        })
-        .collect()
+pub fn has_bad_final(p: &Prakriya) -> bool {
+    let text = p.text();
+    ['d', 'q', 'g', 'b'].iter().any(|c| text.ends_with(*c))
+}
+
+fn is_noisy_pada(p: &Prakriya) -> bool {
+    p.text().contains("cS")
+}
+
+fn uses_va_padantasya(p: &Prakriya) -> bool {
+    p.rule_choices()
+        .iter()
+        .any(|r| r.rule() == Rule::Ashtadhyayi("8.4.59") && r.decision() == Decision::Accept)
+}
+
+pub fn sort_and_dedup(p: &mut Vec<Prakriya>) {
+    p.sort_by_key(|p| p.text());
+    p.dedup_by_key(|p| p.text());
 }
 
 fn debug_text(rule: Rule) -> String {

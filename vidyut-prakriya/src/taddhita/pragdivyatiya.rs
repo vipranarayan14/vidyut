@@ -3,33 +3,31 @@ Implements the taddhita rules in the "prAg dIvyato 'R" section of pada 4.1.
 
 (4.1.83 - 4.3.168)
 */
+use crate::args::Agama as A;
 use crate::args::Taddhita;
 use crate::args::Taddhita::*;
 use crate::args::TaddhitaArtha::*;
 use crate::core::operators as op;
 use crate::core::Rule::Varttika;
-use crate::core::Tag as T;
+use crate::core::{PrakriyaTag as PT, Tag as T};
 use crate::ganapatha as gana;
 use crate::it_samjna;
 use crate::sounds::{s, Set};
 use crate::taddhita::utils::TaddhitaPrakriya;
-use lazy_static::lazy_static;
 
-lazy_static! {
-    static ref UU: Set = s("u");
-}
+const UU: Set = s(&["u"]);
 
 /// Tries various exceptional sutras, which take priority over all other prAgdIvyatIya pratyayas.
 fn try_exceptions(tp: &mut TaddhitaPrakriya, _rule: &'static str) {
     // TODO: use `_rule` as well -- this should be simultaneous application.
     let prati = tp.prati();
     if prati.has_suffix_in(&["diti", "aditi", "Aditya", "pati"]) {
-        if prati.has_text_in(gana::ASHVAPATI_ADI) {
+        if prati.has_text_in(gana::ASHVAPATYADI) {
             tp.try_add("4.1.84", aR);
         } else {
             tp.try_add("4.1.85", Rya);
         }
-    } else if prati.has_text_in(gana::UTSA_ADI) {
+    } else if prati.has_text_in(gana::UTSADI) {
         tp.try_add("4.1.86", aY);
     } else if prati.has_text_in(&["strI", "pums"]) {
         let sub = if prati.has_text("strI") { naY } else { snaY };
@@ -58,7 +56,7 @@ fn try_shaishika_rules(tp: &mut TaddhitaPrakriya, rule: &'static str) {
         let code = "4.2.94";
         tp.try_add(code, ya);
         tp.try_add(code, KaY);
-    } else if prati.has_text_in(gana::KATRI_ADI) {
+    } else if prati.has_text_in(gana::KATRYADI) {
         let i = tp.p.terms().len() - 1;
         tp.try_add_with("4.2.95", QakaY, |p| {
             if p.has(i, |t| t.has_text("kuqyA")) {
@@ -70,7 +68,7 @@ fn try_shaishika_rules(tp: &mut TaddhitaPrakriya, rule: &'static str) {
     }
 
     let prati = tp.prati();
-    if prati.has_text_in(gana::NADI_ADI) {
+    if prati.has_text_in(gana::NADYADI) {
         tp.try_add("4.2.97", Qak);
     } else if prati.has_text_in(&["dakziRA", "paScAt", "puras"]) {
         tp.try_add("4.2.98", tyak);
@@ -100,22 +98,22 @@ fn try_shaishika_rules(tp: &mut TaddhitaPrakriya, rule: &'static str) {
         let code = "4.2.115";
         tp.try_add(code, Wak);
         tp.try_add(code, Cas);
-    } else if prati.has_text_in(gana::KASHI_ADI) {
+    } else if prati.has_text_in(gana::KASHYADI) {
         let code = "4.2.116";
         tp.try_add(code, WaY);
-        tp.try_add(code, YiW);
+        tp.try_add(code, YiWa);
     } else if prati.has_text_in(&["SAkala", "sOsukam", "mAnTava", "mAkala"]) {
         // TODO: not sure of the first list -- I just guessed.
         let code = "4.2.117";
         tp.try_add(code, WaY);
-        tp.try_add(code, YiW);
+        tp.try_add(code, YiWa);
     } else if prati.has_text_in(&["madra", "vfji"]) {
         tp.try_add("4.2.131", kan);
     } else if prati.has_upadha('k') {
         tp.try_add("4.2.132", aR);
-    } else if prati.has_text_in(gana::KACCHA_ADI) {
+    } else if prati.has_text_in(gana::KACCHADI) {
         tp.try_add("4.2.133", aR);
-    } else if prati.has_text_in(gana::GAHA_ADI) {
+    } else if prati.has_text_in(gana::GAHADI) {
         tp.try_add("4.2.138", Ca);
     } else if prati.has_text("parvata") {
         tp.try_add("4.2.143", Ca);
@@ -135,7 +133,7 @@ fn try_shaishika_rules(tp: &mut TaddhitaPrakriya, rule: &'static str) {
         tp.optional_try_add_with("4.3.15", WaY, |p| {
             p.set(i_prati, |t| t.text += "t");
         });
-    } else if prati.has_text_in(gana::SANDHIVELA_ADI) {
+    } else if prati.has_text_in(gana::SANDHIVELADI) {
         // TODO: seasons and asterisms
         tp.try_add("4.3.16", aR);
     } else if prati.has_text("prAvfz") {
@@ -175,9 +173,7 @@ fn try_shaishika_rules(tp: &mut TaddhitaPrakriya, rule: &'static str) {
     }
 
     let prati = tp.prati();
-    if prati.has_text_in(&["yuzmad", "asmad"])
-        && tp.p.has(i_prati + 1, |t| t.has_u_in(&["KaY", "aR"]))
-    {
+    if prati.has_text_in(&["yuzmad", "asmad"]) && tp.p.has(i_prati + 1, |t| t.is(KaY) || t.is(aR)) {
         tp.p.run_at("4.3.2", i_prati, |t| {
             if t.has_text("yuzmad") {
                 t.set_text("yuzmAka");
@@ -195,9 +191,9 @@ pub fn run(tp: &mut TaddhitaPrakriya) {
 
     tp.with_context(Gotra, |tp| {
         let prati = tp.prati();
-        if prati.has_text_in(gana::KUNJA_ADI) {
+        if prati.has_text_in(gana::KUNJADI) {
             tp.try_add("4.1.98", cPaY);
-        } else if prati.has_text_in(gana::NADA_ADI) {
+        } else if prati.has_text_in(gana::NADADI) {
             tp.try_add("4.1.99", Pak);
         } else if prati.has_text_in(&["Saradvat", "Sunaka", "darBa"]) {
             tp.optional_try_add("4.1.102", Pak);
@@ -207,13 +203,13 @@ pub fn run(tp: &mut TaddhitaPrakriya) {
         let prati = tp.prati();
         if prati.has_text_in(&["droRa", "parvata", "jIvanta"]) {
             tp.optional_try_add("4.1.103", Pak);
-        } else if prati.has_text_in(gana::BIDA_ADI) {
+        } else if prati.has_text_in(gana::BIDADI) {
             tp.optional_try_add("4.1.104", aY);
         }
 
         let prati = tp.prati();
         if tp.has_taddhita {
-        } else if prati.has_text_in(gana::GARGA_ADI) {
+        } else if prati.has_text_in(gana::GARGADI) {
             tp.try_add("4.1.105", yaY);
         } else if prati.has_text_in(&["maDu", "baBru"]) {
             // sense: "brAhmaRa" or "kOzika"
@@ -224,7 +220,7 @@ pub fn run(tp: &mut TaddhitaPrakriya) {
         } else if prati.has_text("vataRqa") {
             // sense: "ANgirase"
             tp.optional_try_add("4.1.108", yaY);
-        } else if prati.has_text_in(gana::ASHVA_ADI) {
+        } else if prati.has_text_in(gana::ASHVADI) {
             tp.try_add("4.1.110", PaY);
         } else if prati.has_text("Barga") {
             // sense: traigarta
@@ -238,7 +234,7 @@ pub fn run(tp: &mut TaddhitaPrakriya) {
         let prati = tp.prati();
 
         // Keeps aR regardless of rules below.
-        if prati.has_text_in(gana::SHIVA_ADI) {
+        if prati.has_text_in(gana::SHIVADI) {
             tp.try_add("4.1.112", aR);
         } else if prati.has_text("kanyA") {
             tp.try_add_with("4.1.116", aR, |p| {
@@ -295,7 +291,7 @@ pub fn run(tp: &mut TaddhitaPrakriya) {
             tp.try_add(code, vyat);
             // BrAtfvya
             tp.optional_try_add("4.1.145", vyan);
-        } else if prati.has_text_in(gana::REVATI_ADI) {
+        } else if prati.has_text_in(gana::REVATYADI) {
             // [blocks Qak]
             tp.try_add("4.1.146", Wak);
         } else if prati.has_tag(T::Vrddha) {
@@ -322,20 +318,27 @@ pub fn run(tp: &mut TaddhitaPrakriya) {
             }
         }
 
+        // Alternative to SHUBHRADI
+        let prati = tp.prati();
+        if prati.has_text("goDA") {
+            // gODera
+            tp.try_add("4.1.129", Qrak);
+            // gODAra
+            tp.try_add("4.1.130", Arak);
+        }
+
         // Qak, QaY, etc.
         let prati = tp.prati();
         let is_dvi_ac = prati.num_vowels() == 2;
-        if prati.has_text_in(gana::SHUBHRA_ADI) {
+        if prati.has_text_in(gana::SHUBHRADI) {
             tp.try_add("4.1.123", Qak);
         } else if prati.has_text_in(&["vikarRa", "kuzItaka"]) {
             tp.optional_try_add("4.1.124", Qak);
         } else if prati.has_text("BrU") {
-            if tp.try_add_with("4.1.125", Qak, |p| {
-                op::insert_agama_after(p, i_prati, "vu~k")
-            }) {
+            if tp.try_add_with("4.1.125", Qak, |p| p.insert_after(i_prati, A::vuk)) {
                 it_samjna::run(tp.p, i_prati + 1).expect("ok");
             }
-        } else if prati.has_text_in(gana::KALYANI_ADI) {
+        } else if prati.has_text_in(gana::KALYANYADI) {
             tp.try_add_with("4.1.126", Qak, |p| p.set(i_prati, |t| t.set_antya("in")));
         } else if prati.has_text("kulawA") {
             tp.optional_try_add_with("4.1.127", Qak, |p| p.set(i_prati, |t| t.set_antya("in")));
@@ -345,11 +348,6 @@ pub fn run(tp: &mut TaddhitaPrakriya) {
         } else if prati.has_text("cawaka") {
             // cAwakEra
             tp.try_add(Varttika("4.1.128.1"), Erak);
-        } else if prati.has_text("goDA") {
-            // gODera
-            tp.try_add("4.1.129", Qrak);
-            // gODAra
-            tp.try_add("4.1.130", Arak);
         } else if prati.has_text("pitfzvasf") {
             tp.try_add("4.1.132", CaR);
             tp.try_add_with("4.1.133", Qak, |p| p.set(i_prati, |t| t.set_antya("")));
@@ -381,7 +379,7 @@ pub fn run(tp: &mut TaddhitaPrakriya) {
         let prati = tp.prati();
         if tp.had_match {
             // Do nothing if any other pratyaya above matches.
-        } else if prati.has_suffix_in(gana::BAAHU_ADI) {
+        } else if prati.has_suffix_in(gana::BAAHVADI) {
             // HACK: check suffix instead of uttarapada
             tp.try_add("4.1.96", iY);
         } else if prati.has_text("suDAtf") {
@@ -537,7 +535,7 @@ pub fn run(tp: &mut TaddhitaPrakriya) {
 
     tp.with_context(TasyaSamuha, |tp| {
         let prati = tp.prati();
-        if prati.has_text_in(gana::BHIKSHA_ADI) {
+        if prati.has_text_in(gana::BHIKSHADI) {
             tp.try_add("4.2.38", aR);
         } else if prati.has_text_in(&[
             "ukzan",
@@ -569,7 +567,7 @@ pub fn run(tp: &mut TaddhitaPrakriya) {
             tp.try_add("4.2.43", tal);
         } else if prati.has_text("gaja") {
             tp.try_add(Varttika("4.2.43.1"), tal);
-        } else if prati.has_text_in(gana::KHANDIKA_ADI) {
+        } else if prati.has_text_in(gana::KHANDIKADI) {
             tp.try_add("4.2.45", aY);
         } else if true
         /* || prati.has_text_in(&["hastin", "Denu"]) */
@@ -582,15 +580,15 @@ pub fn run(tp: &mut TaddhitaPrakriya) {
         if prati.has_text_in(&["keSa", "aSva"]) {
             let sub = if prati.has_text("keSa") { yaY } else { Ca };
             tp.optional_try_add("4.2.48", sub);
-        } else if prati.has_text_in(gana::PASHA_ADI) {
+        } else if prati.has_text_in(gana::PASHADI) {
             tp.try_add_with("4.2.49", ya, |p| {
                 // By convention, this `ya` uses strI-linga.
-                p.add_tag(T::Stri);
+                p.add_tag(PT::Stri);
             });
         } else if prati.has_text_in(&["Kala", "go", "raTa"]) {
             tp.try_add_with("4.2.50", ya, |p| {
                 // By convention, this `ya` uses strI-linga.
-                p.add_tag(T::Stri);
+                p.add_tag(PT::Stri);
             });
         }
 
@@ -603,15 +601,15 @@ pub fn run(tp: &mut TaddhitaPrakriya) {
         let prati = tp.prati();
         let code = "4.2.54";
 
-        if prati.has_text_in(gana::RAJANYA_ADI)
+        if prati.has_text_in(gana::RAJANYADI)
             || prati.has_text_in(&["devayAna", "mAlava", "virAwa", "trigarta"])
         {
             // rAjanyaka, ...
             // (Akrti-gana)
             tp.try_add("4.2.53", vuY);
-        } else if prati.has_text_in(gana::BHAURIKI_ADI) {
+        } else if prati.has_text_in(gana::BHAURIKYADI) {
             tp.try_add(code, viDal);
-        } else if prati.has_text_in(gana::AISHUKARI_ADI) {
+        } else if prati.has_text_in(gana::AISHUKARYADI) {
             tp.try_add(code, Baktal);
         }
 
@@ -622,7 +620,7 @@ pub fn run(tp: &mut TaddhitaPrakriya) {
 
     tp.with_context(TadAdhiteTadVeda, |tp| {
         let prati = tp.prati();
-        if prati.has_text_in(gana::KRAMA_ADI) {
+        if prati.has_text_in(gana::KRAMADI) {
             tp.try_add("4.2.61", vun);
         } else {
             try_base_cases(tp, "4.2.59");
@@ -633,9 +631,9 @@ pub fn run(tp: &mut TaddhitaPrakriya) {
         let prati = tp.prati();
         if prati.has_suffix_in(&["mat", "vat"]) && prati.num_vowels() > 3 {
             tp.try_add("4.2.72", aY);
-        } else if prati.has_text_in(gana::SANKALA_ADI) {
+        } else if prati.has_text_in(gana::SANKALADI) {
             tp.try_add("4.2.75", aY);
-        } else if prati.has_text_in(gana::SUVASTA_ADI) {
+        } else if prati.has_text_in(gana::SUVASTVADI) {
             tp.try_add("4.2.77", aR);
         } else if prati.ends_with("roRI") {
             tp.try_add("4.2.78", aR);
@@ -645,13 +643,13 @@ pub fn run(tp: &mut TaddhitaPrakriya) {
             let code = "4.2.84";
             tp.try_add(code, Wak);
             tp.try_add(code, Ca);
-        } else if prati.has_text_in(gana::MADHU_ADI) {
+        } else if prati.has_text_in(gana::MADHVADI) {
             tp.try_add("4.2.86", matup);
         } else if prati.has_text_in(&["kumuda", "naqa", "vetasa"]) {
             tp.try_add("4.2.87", qmatup);
         } else {
             // Base cases
-            if prati.has_antya(&*UU) {
+            if prati.has_antya(UU) {
                 tp.try_add("4.2.71", aY);
             } else {
                 // This is the fourfold sense in which these pratyayas are added.
@@ -735,7 +733,7 @@ pub fn run(tp: &mut TaddhitaPrakriya) {
 
     tp.with_context(TatraBhava, |tp| {
         let prati = tp.prati();
-        if prati.has_text_in(gana::DIG_ADI) {
+        if prati.has_text_in(gana::DIGADI) {
             tp.try_add("4.3.54", yat);
         } else if prati.has_text_in(&["dfti", "kukzi", "kalaSi", "vasti", "asti", "ahi"]) {
             tp.try_add("4.3.56", QaY);
@@ -761,7 +759,7 @@ pub fn run(tp: &mut TaddhitaPrakriya) {
 
     tp.with_context(TataAgata, |tp| {
         let prati = tp.prati();
-        if prati.has_text_in(gana::SHUNDIKA_ADI) {
+        if prati.has_text_in(gana::SHUNDIKADI) {
             tp.try_add("4.3.76", P::aR);
         } else if prati.has_text("pitf") {
             let code = "4.3.79";
@@ -775,10 +773,10 @@ pub fn run(tp: &mut TaddhitaPrakriya) {
 
     tp.with_context(AsyaNivasa, |tp| {
         let prati = tp.prati();
-        if prati.has_text_in(gana::SHANDIKA_ADI) {
+        if prati.has_text_in(gana::SHANDIKADI) {
             // SARqikya
             tp.try_add("4.3.92", Yya);
-        } else if prati.has_text_in(gana::SINDHU_ADI) || prati.has_text_in(gana::TAKSHASHILA_ADI) {
+        } else if prati.has_text_in(gana::SINDHVADI) || prati.has_text_in(gana::TAKSHASHILADI) {
             let code = "4.3.93";
             tp.try_add(code, aR);
             tp.try_add(code, aY);
@@ -834,7 +832,7 @@ pub fn run(tp: &mut TaddhitaPrakriya) {
 
     tp.with_context(TenaKrte, |tp| {
         let prati = tp.prati();
-        if prati.has_text_in(gana::KULALA_ADI) {
+        if prati.has_text_in(gana::KULALADI) {
             tp.try_add("4.3.118", vuY);
         } else if prati.has_text_in(&["kzudrA", "Bramara", "vawara", "pAdapa"]) {
             tp.try_add("4.3.119", aY);
@@ -851,7 +849,7 @@ pub fn run(tp: &mut TaddhitaPrakriya) {
             tp.try_add("4.3.124", Wak);
         } else if prati.has_text_in(&["Candoga", "OkTika", "yAjYika", "bahvfca", "nawa"]) {
             tp.try_add("4.3.129", Yya);
-        } else if prati.has_text_in(gana::RAIVATIKA_ADI) {
+        } else if prati.has_text_in(gana::RAIVATIKADI) {
             tp.try_add("4.3.131", Ca);
         } else if prati.has_text_in(&["kOpiYjala", "hAstipada"]) {
             tp.try_add("4.3.132", aR);
@@ -876,7 +874,7 @@ pub fn run(tp: &mut TaddhitaPrakriya) {
             tp.try_add("4.3.137", aR);
         } else if prati.has_text_in(&["trapu", "jatu"]) {
             tp.try_add_with("4.3.138", aR, |p| p.set(i_prati, |t| t.text += "z"));
-        } else if prati.has_antya(&*UU) {
+        } else if prati.has_antya(UU) {
             tp.try_add("4.3.139", aY);
         } else if prati.has_text_in(&[
             "palASa",
@@ -905,13 +903,14 @@ pub fn run(tp: &mut TaddhitaPrakriya) {
         } else if prati.has_text_in(&["umA", "UrRA"]) {
             tp.optional_try_add("4.3.158", vuY);
         } else if prati.has_text("eRI") {
+            // EReya
             tp.optional_try_add("4.3.159", QaY);
         } else if prati.has_text_in(&["go", "payas"]) {
             tp.try_add("4.3.160", yat);
         } else if prati.has_text("dru") {
             tp.try_add("4.3.161", yat);
             tp.try_add("4.3.162", vaya);
-        } else if prati.has_text_in(gana::PLAKSHA_ADI) {
+        } else if prati.has_text_in(gana::PLAKSHADI) {
             tp.try_add("4.3.164", aR);
         } else if prati.has_text("jambu") {
             tp.optional_try_add("4.3.165", aR);

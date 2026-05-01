@@ -21,45 +21,45 @@ pub enum Tag {
     // Morpheme types
     Upasarga,
     Gati,
+    Anga,
     Dhatu,
+    MulaDhatu,
     Ghu,
     Avyaya,
-    Agama,
     Pratyaya,
 
     Samasa,
     Upasarjana,
 
-    Unadi,
     Pratipadika,
     Vibhakti,
     Sarvanama,
     Sarvanamasthana,
-    Tin,
-    La,
     Nipata,
     Nistha,
-    Krt,
     Krtya,
+
+    // TODO: can remove this group by using Morph instead.
+    Tin,
     Sup,
+    Krt,
     Nyap,
     Taddhita,
-    Vikarana,
 
     // it-samjnas
     // ==========
     /// Placeholder *it* with no specific meaning.
     adit,
-    /// (pratyaya) prevents it-agama for nisthA pratyayas per 7.2.16 but allows it optionally in
+    /// (dhatu) prevents it-agama for nisthA pratyayas per 7.2.16 but allows it optionally in
     /// non-kartari usage per 7.2.17.
     Adit,
     /// (dhatu) indicates the mandatory use of num-Agama (vidi~ -> vind).
     idit,
-    /// (pratyaya) prevents it-Agama for nisthA pratyayas per 7.2.14.
+    /// (dhatu) prevents it-Agama for nisthA pratyayas per 7.2.14.
     Idit,
-    /// (pratyaya) optionally allows it-agama for ktvA-pratyaya per 7.2.56.
+    /// (dhatu) optionally allows it-agama for ktvA-pratyaya per 7.2.56.
     udit,
-    /// (pratyaya) optionally allows it-agama per 7.2.44.
+    /// (dhatu) optionally allows it-agama per 7.2.44.
     Udit,
     /// (dhatu) prevents shortening of the dhatu vowel when followed by Ni + caN per 7.4.2.
     fdit,
@@ -168,18 +168,6 @@ pub enum Tag {
     Parasmaipada,
     Atmanepada,
 
-    AmAtmanepada,
-
-    // Artha (semantic conditions)
-    Ashih,
-    Sanartha,
-    Yanartha,
-
-    // Prayoga
-    Kartari,
-    Bhave,
-    Karmani,
-
     // Purusha
     Prathama,
     Madhyama,
@@ -227,10 +215,12 @@ pub enum Tag {
     // Certain conditions cross prakaranas in a way that is difficult to track.
     // Since these conditions are limited, we just keep track of them with
     // these flags.
+    Adesha,
 
     // Flags on the `Term`:
     FlagGunaApavada,
     FlagGuna,
+    FlagVrddhi,
 
     FlagTrjvat,
 
@@ -241,31 +231,32 @@ pub enum Tag {
     FlagSaAdeshadi,
     FlagNum,
     FlagNoArdhadhatuka,
-    FlagHasAnitKsa,
-    FlagHagSetSic,
-    FlagAtAgama,
     FlagAtLopa,
     FlagAntyaAcSandhi,
     /// Optionally blocks Ric-pratyaya.
     FlagNoNic,
     /// Indicates deletion of a term's final "n" in the asiddhavat section.
     FlagNaLopa,
-    /// Indicates prevention of a sa -> za change in the asiddha section.
-    FlagKeepSa,
     /// Indicates that a dhatu ends in `z` in upadesha.
     FlagShanta,
-    /// Indicates the sense of hetu-bhaya
-    FlagHetuBhaya,
     /// Indicates the application of samprasarana.
     FlagSamprasarana,
+    /// Blocks rule that causes samprasarana (3.2.178.1 vartika)
+    FlagNoSamprasarana,
+    /// Force Samprasarana (see 3.2.178.4)
+    FlagForceSamprasarana,
+    /// Force a dvittva (see 3.2.178.2)
+    FlagForceDvittva,
     // Indicates that ittva was applied.
     FlagIttva,
     /// Blocks a rule that causes dirgha.
     FlagNoDirgha,
-    // Indicates replacement of f/F with f (acIkftat, ...).
-    FlagUrRt,
+    /// Blocks a rule that causes hrasva.
+    FlagNoHrasva,
     /// Indicates use of UW-adesha.
     FlagUth,
+    /// Marks the upapada's sup pratyaya, which should not block samAna-pada checks.
+    FlagUpapadaSup,
 
     Sankhya,
     Sat,
@@ -280,14 +271,6 @@ pub enum Tag {
     /// A sound whose first vowel is vrddhi.
     Vrddha,
 
-    // Compound types (prakriya-only)
-    Avyayibhava,
-    Tatpurusha,
-    Karmadharaya,
-    Bahuvrihi,
-    Dvandva,
-    Samahara,
-
     StriNyap,
     Pada,
     Bha,
@@ -296,10 +279,6 @@ pub enum Tag {
 
     Pragrhya,
     Complete,
-
-    // Indicates that a derivation phase is complete, e.g. to avoid running abhyAsa rules
-    // twice.
-    Final,
 
     /// Indicates use of ru-Adesha.
     Ru,
@@ -345,5 +324,72 @@ impl Tag {
             _ => return Err(Error::UnknownIt(it)),
         };
         Ok(res)
+    }
+}
+
+#[allow(non_camel_case_types)]
+#[derive(Debug, EnumSetType)]
+pub enum PrakriyaTag {
+    Atmanepada,
+    Parasmaipada,
+    AmAtmanepada,
+
+    Pum,
+    Stri,
+    Napumsaka,
+
+    Sambodhana,
+    Ekavacana,
+    Dvivacana,
+    Bahuvacana,
+
+    Karmadharaya,
+    Avyayibhava,
+    Tatpurusha,
+    Bahuvrihi,
+    Dvandva,
+    Samahara,
+
+    Kartari,
+    Bhave,
+    Karmani,
+    Ashih,
+
+    Prathama,
+    Madhyama,
+    Uttama,
+
+    /// Indicates the sense of hetu-bhaya
+    FlagHetuBhaya,
+    FlagHasAnitKsa,
+    FlagHasSetSic,
+
+    // Placeholder for From<Tag> default case.
+    Nothing,
+}
+
+impl From<Tag> for PrakriyaTag {
+    fn from(val: Tag) -> Self {
+        use PrakriyaTag::*;
+        use Tag as T;
+        match val {
+            T::Atmanepada => Atmanepada,
+            T::Parasmaipada => Parasmaipada,
+
+            T::Pum => Pum,
+            T::Stri => Stri,
+            T::Napumsaka => Napumsaka,
+
+            T::Sambodhana => Sambodhana,
+            T::Ekavacana => Ekavacana,
+            T::Dvivacana => Dvivacana,
+            T::Bahuvacana => Bahuvacana,
+
+            T::Prathama => Prathama,
+            T::Madhyama => Madhyama,
+            T::Uttama => Uttama,
+
+            _ => Nothing,
+        }
     }
 }

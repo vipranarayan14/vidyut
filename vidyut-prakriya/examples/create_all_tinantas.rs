@@ -8,6 +8,9 @@
 //! - 3 vacanas
 //!
 //! These combinations produce around 2000 x 2 x 5 x 10 x 3 x 3 = 1.8 million tinantas.
+//! Usage:
+//!
+//!     cargo run --release --example create_all_tinantas -- --output-scheme Devanagari
 use clap::Parser;
 use serde::Serialize;
 use std::error::Error;
@@ -16,13 +19,19 @@ use vidyut_lipi::{Lipika, Scheme};
 use vidyut_prakriya::args::{Lakara, Prayoga, Purusha, Sanadi, Tinanta, Vacana};
 use vidyut_prakriya::{Dhatupatha, Vyakarana};
 
+mod src_utils;
+use src_utils::find_src_root;
+
 /// Command line arguments.
 #[derive(Parser)]
 #[command(author, version, about)]
 struct Args {
-    /// If set, the output scheme to use. Supported options are: slp1, devanagari, iast.
+    /// If set, the output scheme to use.
     ///
-    /// (Default: slp1)
+    /// Any scheme name accepted by `vidyut-prakriya` is valid. Examples: `Devanagari`, `Iso15919`,
+    /// `Slp1`.
+    ///
+    /// (Default: `Slp1`)
     #[arg(long)]
     output_scheme: Option<String>,
 }
@@ -33,21 +42,26 @@ struct Row<'a> {
     dhatu: &'a str,
     gana: &'static str,
     number: u16,
-    prayoga: &'static str,
-    lakara: &'static str,
-    purusha: &'static str,
-    vacana: &'static str,
+    sanadi: String,
+    prayoga: Prayoga,
+    lakara: Lakara,
+    purusha: Purusha,
+    vacana: Vacana,
 }
 
-fn create_pada_string(mut padas: Vec<String>, output_scheme: Scheme) -> String {
-    padas.sort();
-    let mut lipika = Lipika::new();
+fn create_output_string(
+    lipika: &mut Lipika,
+    mut items: Vec<String>,
+    output_scheme: Scheme,
+) -> String {
+    items.sort();
+    items.dedup();
     if output_scheme != Scheme::Slp1 {
-        for s in padas.iter_mut() {
+        for s in items.iter_mut() {
             *s = lipika.transliterate(&s, Scheme::Slp1, output_scheme);
         }
     }
-    padas.join("|")
+    items.join("|")
 }
 
 fn run(dhatupatha: Dhatupatha, args: Args) -> Result<(), Box<dyn Error>> {
@@ -59,33 +73,31 @@ fn run(dhatupatha: Dhatupatha, args: Args) -> Result<(), Box<dyn Error>> {
         vec![Sanadi::yaNluk],
     ];
 
-    let mut wtr = csv::Writer::from_writer(io::stdout());
     let v = Vyakarana::builder().log_steps(false).build();
+    let mut lipika = Lipika::new();
+    let mut wtr = csv::Writer::from_writer(io::stdout());
 
-    let output_scheme = match args.output_scheme {
-        Some(x) => match x.as_str() {
-            "devanagari" => Scheme::Devanagari,
-            "iast" => Scheme::Iast,
-            "slp1" => Scheme::Slp1,
-            // We should handle this with an error, but it's easier to default to SLP1.
-            _ => Scheme::Slp1,
-        },
+    let output_scheme: Scheme = match args.output_scheme {
+        Some(s) => s.parse()?,
         None => Scheme::Slp1,
     };
 
-    for entry in dhatupatha {
-        let dhatu = entry.dhatu();
-        for sanadis in &sanadi_choices {
-            for prayoga in &[Prayoga::Kartari, Prayoga::Karmani] {
+    for sanadis in &sanadi_choices {
+        for entry in &dhatupatha {
+            let dhatu = entry.dhatu().clone().with_sanadi(&sanadis);
+            let sanadi_text: Vec<_> = sanadis.iter().map(|x| x.as_str()).collect();
+            let sanadi_text = sanadi_text.join("-");
+
+            for prayoga in [Prayoga::Kartari, Prayoga::Karmani] {
                 for lakara in Lakara::iter() {
                     for purusha in Purusha::iter() {
                         for vacana in Vacana::iter() {
                             let tinanta = Tinanta::builder()
-                                .dhatu(dhatu.clone().with_sanadi(&sanadis))
-                                .prayoga(*prayoga)
-                                .purusha(*purusha)
-                                .vacana(*vacana)
-                                .lakara(*lakara)
+                                .dhatu(dhatu.clone())
+                                .prayoga(prayoga)
+                                .purusha(purusha)
+                                .vacana(vacana)
+                                .lakara(lakara)
                                 .build()?;
 
                             let prakriyas = v.derive_tinantas(&tinanta);
@@ -93,19 +105,20 @@ fn run(dhatupatha: Dhatupatha, args: Args) -> Result<(), Box<dyn Error>> {
                                 continue;
                             }
 
-                            let dhatu_text = &dhatu.upadesha().expect("ok");
+                            let dhatu_text = &dhatu.aupadeshika().expect("ok");
                             let padas: Vec<_> = prakriyas.iter().map(|p| p.text()).collect();
-                            let padas = create_pada_string(padas, output_scheme);
+                            let padas = create_output_string(&mut lipika, padas, output_scheme);
 
                             let row = Row {
                                 padas,
                                 dhatu: dhatu_text,
                                 gana: dhatu.gana().expect("ok").as_str(),
                                 number: entry.number(),
-                                lakara: lakara.as_str(),
-                                purusha: purusha.as_str(),
-                                vacana: vacana.as_str(),
-                                prayoga: prayoga.as_str(),
+                                sanadi: sanadi_text.clone(),
+                                lakara,
+                                purusha,
+                                vacana,
+                                prayoga,
                             };
 
                             wtr.serialize(row)?;
@@ -123,7 +136,17 @@ fn run(dhatupatha: Dhatupatha, args: Args) -> Result<(), Box<dyn Error>> {
 fn main() {
     let args = Args::parse();
 
-    let dhatus = match Dhatupatha::from_path("data/dhatupatha.tsv") {
+    let source_root = find_src_root(); // Find the toplevel .git directory
+    assert!(
+        source_root.is_some(),
+        "Could not find toplevel .git directory"
+    );
+    let dhatupatha_path = source_root
+        .unwrap()
+        .as_path()
+        .join("vidyut-prakriya/data/dhatupatha.tsv");
+
+    let dhatus = match Dhatupatha::from_path(dhatupatha_path.as_path()) {
         Ok(res) => res,
         Err(err) => {
             println!("{}", err);

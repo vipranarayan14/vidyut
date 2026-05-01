@@ -4,47 +4,73 @@ Manages the derivation state.
 Users interested in understanding this module should start by reading the comments on the
 `Prakriya` struct, which manages a derivation from start to finish.
 */
-use crate::args::{Artha, Lakara};
-use crate::core::Tag;
-use crate::core::{Term, TermView};
-use compact_str::CompactString;
+use crate::args::Artha;
+use crate::core::{PrakriyaTag, PrakriyaTag as PT, Tag, Term, TermView};
+use crate::sounds::Set;
 use enumset::EnumSet;
 
 /// A simple string label for some rule in the grammar.
 pub type Code = &'static str;
 
-/// A rule applied in the prakriya.
+/// A rule decision.
+#[derive(Copy, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum Decision {
+    /// Indicates that a rule was accepted during the derivation.
+    Accept,
+    /// Indicates that a rule was declined during the derivation.
+    Decline,
+}
+
+/// A rule applied in the *prakriyā*.
 ///
 /// Most of a derivation's rules come directly from the Ashtadhyayi. But, some derivations use
 /// rules from other sources. We use this model to clearly define where different rules come from.
-#[derive(Copy, Clone, Debug, Hash, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Hash, Eq, Ord, PartialEq, PartialOrd)]
 pub enum Rule {
-    /// A sutra from the Ashtadhyayi. The string data here is an adhyaya-pada-sutra string, e.g.
-    /// "3.1.68".
+    /// A sutra from the Ashtadhyayi.
+    ///
+    /// Format: `<adhyaya>.<pada>.<sutra>`
     Ashtadhyayi(&'static str),
-    /// A varttika on the Ashtadhyayi. The first string is an adhyaya-pada-sutra string, e.g.
-    /// "3.1.68",a nd the second string is an integer corresponding to the vArttika's position on
-    /// the sutra, e.g. "2" for the second vArttika on some sUtra.
+    /// A varttika on the Ashtadhyayi.
+    ///
+    /// Format: `<adhyaya>.<pada>.<sutra>.<varttika>`
     Varttika(&'static str),
-    /// A sutra from the Dhatupatha. The string data here is a gana-sutra string, e.g. "10.0493".
+    /// A sutra from the Dhatupatha.
+    ///
+    /// Format: `<gana>.<sutra>`
     Dhatupatha(&'static str),
-    /// A sutra from the Unadipatha. The string here is a gana-sutra string, e.g. "1.1".
+    /// A sutra from the Unadipatha.
+    ///
+    /// Format: `<gana>.<sutra>`
     Unadipatha(&'static str),
-    /// A sutra from the Paniniya-Linganushasanam. The string here is the sutra's position in the
-    /// text, e.g. "40".
+    /// A sutra from the Paniniya-Linganushasanam.
+    ///
+    /// Format: `<sutra>`
     Linganushasana(&'static str),
-    /// A sutra from the Phit Sutras. The string here is a gana-sutra string, e.g. "1.1".
+    /// A sutra from the Phit Sutras.
+    ///
+    /// Format: `<gana>.<sutra>`
     Phit(&'static str),
-    /// A comment in the Kashika-vrtti on a specific sutra. The string data here is an
-    /// adhyaya-pada-sutra string that describes the sutra being commented on.
+    /// A comment in the Kashika-vrtti on a specific sutra.
+    ///
+    /// Format: `<adhyaya>.<pada>.<sutra>`
     Kashika(&'static str),
-    /// A quotation from the Vaiyakarana-siddhanta-kaumudi. The string here is the position of the
-    /// sutra being commented on in Kaumudi order, e.g. "446".
+    /// A quotation from the Vaiyakarana-siddhanta-kaumudi.
+    ///
+    /// Format: `<sutra>`
     Kaumudi(&'static str),
 }
 
 impl Rule {
     /// The string representation of this rule.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use vidyut_prakriya::*;
+    /// let rule = Rule::Ashtadhyayi("1.1.1");
+    /// assert_eq!(rule.code(), "1.1.1");
+    /// ```
     pub fn code(&self) -> &'static str {
         match self {
             Self::Ashtadhyayi(x) => x,
@@ -55,6 +81,28 @@ impl Rule {
             Self::Phit(x) => x,
             Self::Kashika(x) => x,
             Self::Kaumudi(x) => x,
+        }
+    }
+
+    /// Returns the name of the rule source in SLP1.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use vidyut_prakriya::*;
+    /// let rule = Rule::Ashtadhyayi("1.1.1");
+    /// assert_eq!(rule.source_name(), "azwADyAyI");
+    /// ```
+    pub fn source_name(&self) -> &'static str {
+        match self {
+            Self::Ashtadhyayi(_) => "azwADyAyI",
+            Self::Dhatupatha(_) => "DAtupAWaH",
+            Self::Kashika(_) => "kASikA",
+            Self::Kaumudi(_) => "kOmudI",
+            Self::Linganushasana(_) => "liNgAnuSAsanam",
+            Self::Phit(_) => "PiwsUtrARi",
+            Self::Unadipatha(_) => "uRAdipAWaH",
+            Self::Varttika(_) => "vArttikAH",
         }
     }
 }
@@ -74,7 +122,7 @@ impl From<&'static str> for Rule {
 /// structure with more information about the specific change. For example, we might explicitly
 /// indicate which term in the result was changed, which kind of rule was replied, and whether this
 /// rule was optional.
-#[derive(Clone, Debug, Hash, Eq, PartialEq)]
+#[derive(Clone, Debug, Hash, Eq, Ord, PartialEq, PartialOrd)]
 pub struct Step {
     rule: Rule,
     result: Vec<StepTerm>,
@@ -87,13 +135,13 @@ impl Step {
     }
 
     /// The result of applying `rule`.
-    pub fn result(&self) -> &Vec<StepTerm> {
+    pub fn result(&self) -> &[StepTerm] {
         &self.result
     }
 }
 
 /// One of the terms in the derivation.
-#[derive(Clone, Debug, Hash, Eq, PartialEq)]
+#[derive(Clone, Debug, Hash, Eq, Ord, PartialEq, PartialOrd)]
 pub struct StepTerm {
     text: String,
     // NOTE: keep `tags` private.
@@ -125,27 +173,49 @@ impl StepTerm {
 }
 
 /// Records whether an optional rule was accepted or declined.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum RuleChoice {
-    /// Indicates that a rule was accepted during the derivation.
-    Accept(Rule),
-    /// Indicates that a rule was declined during the derivation.
-    Decline(Rule),
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct RuleChoice {
+    /// Rule Ashtadhyayi, vartika or other ...
+    pub rule: Rule,
+    /// Decision : Accept or Decline the above rule
+    pub decision: Decision,
+}
+
+impl RuleChoice {
+    /// The rule for which we made a decision.
+    pub fn rule(&self) -> Rule {
+        self.rule
+    }
+
+    /// The decision made.
+    pub fn decision(&self) -> Decision {
+        self.decision
+    }
 }
 
 /// Configuration options that affect how a `Prakriya` behaves during the derivation.
-#[derive(Clone, Default, Debug)]
+#[derive(Clone, Default, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub(crate) struct Config {
     pub rule_choices: Vec<RuleChoice>,
     pub log_steps: bool,
     pub is_chandasi: bool,
     pub use_svaras: bool,
+    pub nlp_mode: bool,
 }
 
 impl Config {
     pub fn new() -> Self {
         Self::default()
     }
+}
+
+#[derive(Clone, Copy, Default, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub(crate) enum Stage {
+    #[default]
+    DhatuPrep,
+    Pada,
+    Vakya,
+    Error,
 }
 
 /// Models a Paninian derivation.
@@ -177,15 +247,15 @@ impl Config {
 /// For example, we might want the derivation to use *chandasi* rules, or we might wish to block
 /// such rules. Or, we might want to skip history logging so that we can generate words more
 /// quickly.
-#[derive(Default, Debug)]
+#[derive(Clone, Default, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct Prakriya {
     terms: Vec<Term>,
-    tags: EnumSet<Tag>,
+    pub(crate) stage: Stage,
+    tags: EnumSet<PrakriyaTag>,
     history: Vec<Step>,
     artha: Option<Artha>,
-    config: Config,
-    rule_choices: Vec<RuleChoice>,
-    lakara: Option<Lakara>,
+    pub(crate) config: Config,
+    pub(crate) rule_choices: Vec<RuleChoice>,
 }
 
 /// Public API
@@ -229,14 +299,14 @@ impl Prakriya {
 
     /// Returns all of the optional rules that were encountered during the derivation and whether
     /// they were accepted or rejected.
-    pub fn rule_choices(&self) -> &Vec<RuleChoice> {
+    pub fn rule_choices(&self) -> &[RuleChoice] {
         &self.rule_choices
     }
 
-    /// Returns all of the rules that were applied during the derivation and the output of each
+    /// Returns all the rules that were applied during the derivation and the output of each
     /// step. If history logging has been disabled on `Vyakarana`, then `history()` will return
     /// an empty `Vec`.
-    pub fn history(&self) -> &Vec<Step> {
+    pub fn history(&self) -> &[Step] {
         &self.history
     }
 
@@ -265,10 +335,10 @@ impl Prakriya {
 /// method that works as follows:
 ///
 /// ```rust,ignore
-/// # use vidyut_prakriya::{Prakriya, Tag};
+/// # use vidyut_prakriya::{Prakriya, PrakriyaTag};
 /// // Mark that `prakriya` contains a dhatu that should accept an atmanepada-pratyaya.
 /// prakriya.optionally("1.2.3", |rule, p| {
-///     p.run(rule, |p| p.add_tag(Tag::Atmanepada));
+///     p.run(rule, |p| p.add_tag(PrakriyaTag::Atmanepada));
 /// })
 /// ```
 ///
@@ -281,12 +351,12 @@ impl Prakriya {
     pub(crate) fn new() -> Self {
         Prakriya {
             terms: Vec::new(),
+            stage: Stage::Pada,
             tags: EnumSet::new(),
             history: Vec::new(),
             artha: None,
             config: Config::new(),
             rule_choices: Vec::new(),
-            lakara: None,
         }
     }
 
@@ -300,19 +370,13 @@ impl Prakriya {
     // Accessors
     // ---------
 
-    /// Like `text` but creates a `CompactString`.
-    ///
-    /// `CompactString` is an implementation detail that we don't wish to expose in the public API.
-    pub(crate) fn compact_text(&self) -> CompactString {
-        let mut ret = CompactString::from("");
-        for t in &self.terms {
-            ret.push_str(&t.text);
-        }
-        ret
+    /// Returns the number of terms in the prakriya.
+    pub(crate) fn len(&self) -> usize {
+        self.terms.len()
     }
 
     /// Returns all terms.
-    pub(crate) fn terms(&self) -> &Vec<Term> {
+    pub(crate) fn terms(&self) -> &[Term] {
         &self.terms
     }
 
@@ -344,10 +408,20 @@ impl Prakriya {
         None
     }
 
+    pub(crate) fn sound_set(&self) -> Set {
+        let mut ret = Set::new();
+        for t in self.terms() {
+            for c in t.chars() {
+                ret.add(c);
+            }
+        }
+        ret
+    }
+
     // Views
     // -----
 
-    pub(crate) fn custom_view(&self, start: usize, end: usize) -> Option<TermView> {
+    pub(crate) fn view(&self, start: usize, end: usize) -> Option<TermView> {
         TermView::new(self.terms(), start, end)
     }
 
@@ -368,7 +442,8 @@ impl Prakriya {
     /// 4.1.2 (NyAp-prAtipadikAt). So, this method returns both pratipadikas and nyApu-antas.
     pub(crate) fn nyapu_pratipadika(&self, i_end: usize) -> Option<TermView> {
         let t = self.get(i_end)?;
-        if t.is_pratipadika_or_nyapu() {
+        // Also include dhatus with Bha tag (e.g. `han` in kvip-krdanta declension).
+        if t.is_pratipadika_or_nyapu() || (t.is_dhatu() && t.has_tag(Tag::Bha)) {
             TermView::new(self.terms(), 0, i_end)
         } else {
             None
@@ -386,12 +461,12 @@ impl Prakriya {
     // ----------
 
     pub(crate) fn is_karmadharaya(&self) -> bool {
-        self.has_tag(Tag::Karmadharaya)
+        self.has_tag(PT::Karmadharaya)
     }
 
     /// Returns whether the given prakriya express bhAve/karmani prayoga.
     pub(crate) fn is_bhave_or_karmani(&self) -> bool {
-        self.any(&[Tag::Bhave, Tag::Karmani])
+        self.has_tag_in(&[PT::Bhave, PT::Karmani])
     }
 
     /// Returns whether the term at the given index can be called "pada".
@@ -437,52 +512,70 @@ impl Prakriya {
 
     /// Returns the index of the first `Term` that has the given tag or `None` if no such term
     /// exists.
-    pub(crate) fn find_first(&self, tag: Tag) -> Option<usize> {
+    pub(crate) fn find_first_with_tag(&self, tag: Tag) -> Option<usize> {
         self.find_first_where(|t| t.has_tag(tag))
     }
 
     pub(crate) fn find_prev_where(
         &self,
-        start_index: usize,
+        index: usize,
         filter: impl Fn(&Term) -> bool,
     ) -> Option<usize> {
-        if self.terms.get(start_index).is_some() {
-            self.terms
-                .iter()
-                .enumerate()
-                .filter(|(i, t)| *i < start_index && filter(t))
-                .rev()
-                .map(|(i, _)| i)
-                .next()
-        } else {
-            None
+        for i in (0..index).rev() {
+            let t = &self.terms[i];
+            if filter(t) {
+                return Some(i);
+            }
         }
+        None
     }
 
     pub(crate) fn find_next_where(
         &self,
-        start_index: usize,
+        index: usize,
         filter: impl Fn(&Term) -> bool,
     ) -> Option<usize> {
-        if self.terms.get(start_index).is_some() {
-            self.terms
-                .iter()
-                .enumerate()
-                .filter(|(i, t)| *i > start_index && filter(t))
-                .map(|(i, _)| i)
-                .next()
-        } else {
-            None
+        for i in (index + 1)..self.terms.len() {
+            let t = &self.terms[i];
+            if filter(t) {
+                return Some(i);
+            }
         }
+        None
     }
 
-    pub(crate) fn find_next_not_empty(&self, index: usize) -> Option<usize> {
+    /// Finds the index of the pratyaya that follows the anga at the given `index`.
+    pub(crate) fn find_next_anga_pratyaya(&self, index: usize) -> Option<TermView> {
+        for i in (index + 1)..self.terms.len() {
+            let t = &self.terms[i];
+            if t.is_pratyaya() {
+                if !t.is_lupta() {
+                    let i_start = if self.has(i - 1, |t| t.is_agama() && t.has_tag(Tag::wit)) {
+                        i - 1
+                    } else {
+                        i
+                    };
+
+                    return TermView::new(self.terms(), i_start, i);
+                }
+            } else if !t.is_agama() {
+                break;
+            }
+        }
+        None
+    }
+
+    pub(crate) fn prev_not_empty(&self, index: usize) -> Option<usize> {
+        self.find_prev_where(index, |t| !t.is_empty())
+    }
+
+    pub(crate) fn next_not_empty(&self, index: usize) -> Option<usize> {
         self.find_next_where(index, |t| !t.is_empty())
     }
 
-    pub(crate) fn find_last_where(&self, f: impl Fn(&Term) -> bool) -> Option<usize> {
+    pub(crate) fn find_last_where(&self, func: impl Fn(&Term) -> bool) -> Option<usize> {
         for (i, t) in self.terms.iter().enumerate().rev() {
-            if f(t) {
+            if func(t) {
                 return Some(i);
             }
         }
@@ -491,7 +584,7 @@ impl Prakriya {
 
     /// Returns the index of the last `Term` that has the given tag or `None` if no such term
     /// exists.
-    pub(crate) fn find_last(&self, tag: Tag) -> Option<usize> {
+    pub(crate) fn find_last_with_tag(&self, tag: Tag) -> Option<usize> {
         for (i, t) in self.terms.iter().enumerate().rev() {
             if t.has_tag(tag) {
                 return Some(i);
@@ -500,35 +593,8 @@ impl Prakriya {
         None
     }
 
-    /// Finds the term that contains the char at index `i_char` in `self.text()`.
-    pub(crate) fn find_for_char_at(&self, i_char: usize) -> Option<usize> {
-        let mut cur = 0;
-        for (i, t) in self.terms().iter().enumerate() {
-            let delta = t.text.len();
-            if (cur..cur + delta).contains(&i_char) {
-                return Some(i);
-            }
-            cur += delta;
-        }
-        None
-    }
-
-    /// Replaces character `i` of the current prakriya with the given substitute.
-    pub(crate) fn set_char_at(&mut self, i_char: usize, substitute: &str) {
-        let mut cur = 0;
-        for t in self.terms_mut() {
-            let delta = t.text.len();
-            if (cur..cur + delta).contains(&i_char) {
-                let i_offset = i_char - cur;
-                t.text.replace_range(i_offset..=i_offset, substitute);
-                return;
-            }
-            cur += delta;
-        }
-    }
-
     /// Sets the penultimate sound within the range `[start, end]` to the given value.
-    pub(crate) fn set_upadha_within_range(&mut self, start: usize, end: usize, substitute: &str) {
+    pub(crate) fn set_upadha_within_range(&mut self, start: usize, end: usize, sub: char) {
         debug_assert!(start <= end);
 
         let mut cur = 0;
@@ -536,7 +602,9 @@ impl Prakriya {
         for t in self.terms[start..=end].iter_mut().rev() {
             for (i_char, _) in t.text.bytes().enumerate().rev() {
                 if cur == nth_rev {
-                    t.text.replace_range(i_char..=i_char, substitute);
+                    let mut buf: [u8; 4] = [0; 4];
+                    let sub_str: &str = sub.encode_utf8(&mut buf);
+                    t.text.replace_range(i_char..=i_char, sub_str);
                     return;
                 }
                 cur += 1;
@@ -556,17 +624,13 @@ impl Prakriya {
         }
     }
 
-    /// Returns whether the prakriya has any of the given `tags`.
-    pub(crate) fn any(&self, tags: &[Tag]) -> bool {
-        tags.iter().any(|t| self.tags.contains(*t))
-    }
-
     /// Returns whether the prakriya has the given `tag`.
-    pub(crate) fn has_tag(&self, tag: Tag) -> bool {
+    pub(crate) fn has_tag(&self, tag: PrakriyaTag) -> bool {
         self.tags.contains(tag)
     }
 
-    pub(crate) fn has_tag_in(&self, tags: &[Tag]) -> bool {
+    /// Returns whether the prakriya has any of the given `tags`.
+    pub(crate) fn has_tag_in(&self, tags: &[PrakriyaTag]) -> bool {
         tags.iter().any(|t| self.tags.contains(*t))
     }
 
@@ -576,11 +640,15 @@ impl Prakriya {
     /// a taddhitanta, or a samasa) can extend over multiple terms. This method is a unified API
     /// that checks for either type of pratipadika.
     pub(crate) fn has_pratipadika(&self, index: usize, text: &str) -> bool {
+        if index >= self.len() {
+            return false;
+        }
+
         // Strategy: iterate backward term by term until we have matched all chars in `text`. If
         // there is any mismatch, return false.
         let mut offset = text.len();
         for i in (0..=index).rev() {
-            let t = self.get(i).expect("present");
+            let t = &self.terms[i];
             let slice = &text[0..offset];
             if slice.ends_with(t.text.as_str()) {
                 // No risk of overflow here because `t.text` is at least as long as `slice`.
@@ -598,15 +666,15 @@ impl Prakriya {
     }
 
     pub(crate) fn has_prev_non_empty(&self, index: usize, func: impl Fn(&Term) -> bool) -> bool {
-        match self.find_prev_where(index, |t| !t.is_empty()) {
-            Some(i) => func(self.get(i).expect("ok")),
+        match self.prev_not_empty(index) {
+            Some(i) => func(&self.terms[i]),
             None => false,
         }
     }
 
     pub(crate) fn has_next_non_empty(&self, index: usize, func: impl Fn(&Term) -> bool) -> bool {
-        match self.find_next_where(index, |t| !t.is_empty()) {
-            Some(i) => func(self.get(i).expect("ok")),
+        match self.next_not_empty(index) {
+            Some(i) => func(&self.terms[i]),
             None => false,
         }
     }
@@ -615,7 +683,7 @@ impl Prakriya {
     // --------------
 
     /// Adds a tag to the prakriya.
-    pub(crate) fn add_tag(&mut self, tag: Tag) {
+    pub(crate) fn add_tag(&mut self, tag: PrakriyaTag) {
         self.tags.insert(tag);
     }
 
@@ -629,20 +697,11 @@ impl Prakriya {
         self.artha = Some(artha);
     }
 
-    #[allow(unused)]
-    pub(crate) fn remove_tag(&mut self, tag: Tag) {
+    pub(crate) fn remove_tag(&mut self, tag: PrakriyaTag) {
         self.tags.remove(tag);
     }
 
-    pub(crate) fn set_lakara(&mut self, lakara: Lakara) {
-        self.lakara = Some(lakara);
-    }
-
-    pub(crate) fn has_lakara(&self, lakara: Lakara) -> bool {
-        self.lakara == Some(lakara)
-    }
-
-    pub(crate) fn add_tags(&mut self, tags: &[Tag]) {
+    pub(crate) fn add_tags(&mut self, tags: &[PrakriyaTag]) {
         for t in tags {
             self.tags.insert(*t);
         }
@@ -654,12 +713,12 @@ impl Prakriya {
         }
     }
 
-    pub(crate) fn insert_before(&mut self, i: usize, t: Term) {
-        self.terms.insert(i, t);
+    pub(crate) fn insert(&mut self, i: usize, t: impl Into<Term>) {
+        self.terms.insert(i, t.into());
     }
 
-    pub(crate) fn insert_after(&mut self, i: usize, t: Term) {
-        self.terms.insert(i + 1, t);
+    pub(crate) fn insert_after(&mut self, i: usize, t: impl Into<Term>) {
+        self.terms.insert(i + 1, t.into());
     }
 
     /// Adds the given term to the end of the term list.
@@ -688,7 +747,7 @@ impl Prakriya {
 
     /// Runs `func` on the `Prakriya` then records `rule` in the derivation history.
     ///
-    /// `rule` will be recorded regardless of whether or not `operator` caused any changes.
+    /// `rule` will be recorded regardless of whether `operator` caused any changes.
     ///
     /// Returns: `true`. We return a boolean value for consistency with functions like
     /// `run_optional`.
@@ -721,7 +780,7 @@ impl Prakriya {
         self.run_at(rule.into(), index, |t| t.add_tag(tag));
     }
 
-    /// Runs `func` optionally and records whether the option was accepted or rejected.
+    /// Runs `func` optionally and updates our decision history accordingly.
     ///
     /// Returns: whether the option was accepted.
     pub(crate) fn optionally(
@@ -730,12 +789,21 @@ impl Prakriya {
         func: impl FnOnce(Rule, &mut Prakriya),
     ) -> bool {
         let rule = rule.into();
-        if self.is_allowed(rule) {
-            func(rule, self);
-            true
-        } else {
-            self.decline(rule);
-            false
+        let decision = self.decide(rule);
+        match decision {
+            Some(Decision::Accept) | None => {
+                func(rule, self);
+                /*
+                if !self.rule_choices.iter().any(|rc| rc.rule == rule) {
+                }
+                */
+                self.log_accepted(rule);
+                true
+            }
+            Some(Decision::Decline) => {
+                self.log_declined(rule);
+                false
+            }
         }
     }
 
@@ -793,22 +861,19 @@ impl Prakriya {
         let mut result: Vec<StepTerm> = self
             .terms
             .iter()
-            .map(|t| {
-                let mut tags = t.tags;
-                // HACK: remove a flag that is not added by any rule, to avoid spurious
-                // highlighting.
-                // TODO: move flags to their own field to avoid these and similar issues, and so
-                // that we might refactor `Tag` into a `Samjna` type in the future.
-                tags.remove(Tag::FlagIttva);
-                StepTerm {
-                    text: t.text_with_svaras(),
-                    tags,
-                    was_changed: false,
-                }
+            .map(|t| StepTerm {
+                text: t.text_with_svaras(),
+                tags: t.tags,
+                was_changed: false,
             })
             .collect();
-
-        if let Some(prev) = self.history.last() {
+        // Get the correct previous StepTerm in history by skipping "debug"
+        // statements for determining "was_changed"
+        if let Some(prev) = self
+            .history
+            .iter()
+            .rfind(|st| st.rule != Rule::Ashtadhyayi("    "))
+        {
             let prev = prev.result();
             let had_insertion = prev.len() < result.len();
             let mut any_changed = false;
@@ -853,35 +918,40 @@ impl Prakriya {
         self.config.use_svaras
     }
 
-    pub(crate) fn is_allowed(&mut self, r: impl Into<Rule>) -> bool {
+    /// Returns whether this prakriya should use NLP mode.
+    pub(crate) fn nlp_mode(&self) -> bool {
+        self.config.nlp_mode
+    }
+
+    pub(crate) fn decide(&self, r: impl Into<Rule>) -> Option<Decision> {
         let r = r.into();
-        for option in &self.config.rule_choices {
-            match option {
-                RuleChoice::Accept(rule) => {
-                    if r == *rule {
-                        self.accept(r);
-                        return true;
-                    }
-                }
-                RuleChoice::Decline(rule) => {
-                    if r == *rule {
-                        return false;
-                    }
-                }
+        for choice in &self.config.rule_choices {
+            if choice.rule == r {
+                return Some(choice.decision);
             }
         }
 
-        // If not in options, allow this rule by default.
-        self.accept(r);
-        true
+        None
     }
 
-    pub(crate) fn accept(&mut self, rule: impl Into<Rule>) {
-        self.rule_choices.push(RuleChoice::Accept(rule.into()));
+    pub(crate) fn log_accepted(&mut self, rule: impl Into<Rule>) {
+        let rule = rule.into();
+        if !self.rule_choices.iter().any(|rc| rc.rule == rule) {
+            self.rule_choices.push(RuleChoice {
+                rule,
+                decision: Decision::Accept,
+            });
+        }
     }
 
-    pub(crate) fn decline(&mut self, rule: impl Into<Rule>) {
-        self.rule_choices.push(RuleChoice::Decline(rule.into()));
+    pub(crate) fn log_declined(&mut self, rule: impl Into<Rule>) {
+        let rule = rule.into();
+        if !self.rule_choices.iter().any(|rc| rc.rule == rule) {
+            self.rule_choices.push(RuleChoice {
+                rule,
+                decision: Decision::Decline,
+            });
+        }
     }
 
     // Debugging code
@@ -917,4 +987,23 @@ impl Prakriya {
     #[allow(unused)]
     #[cfg(not(debug_assertions))]
     pub(crate) fn dump(&mut self) {}
+
+    /// Shows size estimates for the prakriya.
+    #[allow(unused)]
+    pub(crate) fn show_sizes(&self) {
+        use std::mem::size_of;
+
+        let base = size_of::<Prakriya>();
+        println!("{}", self.text());
+        println!("Base: {base}B");
+        for t in &self.terms {
+            let t_base = size_of::<Term>();
+            let u_size = match &t.u {
+                Some(u) => u.capacity(),
+                None => 0,
+            };
+            let text_size = t.text.capacity();
+            println!("- Term: base = {t_base}B, u = {u_size}B, text = {text_size}B");
+        }
+    }
 }

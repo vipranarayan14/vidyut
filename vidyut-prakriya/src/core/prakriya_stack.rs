@@ -1,5 +1,5 @@
 use crate::core::errors::*;
-use crate::core::{Config, Prakriya, RuleChoice};
+use crate::core::{Config, Decision, Prakriya, RuleChoice};
 
 /// Explores all optional derivations for some input.
 ///
@@ -14,22 +14,35 @@ pub(crate) struct PrakriyaStack {
     is_chandasi: bool,
     /// Whether svara rules are enabled.
     use_svaras: bool,
+    /// Whether NLP mode is enabled.
+    nlp_mode: bool,
 
     /// Completed prakriyas.
     prakriyas: Vec<Prakriya>,
     /// Combinations of optional rules that we have yet to try.
     paths: Vec<Vec<RuleChoice>>,
+    /// If set, the choices that all prakriyas must make for optional rules. Any prakriyas that
+    /// contradict these choices will not be returned.
+    default_choices: Vec<RuleChoice>,
 }
 
 impl PrakriyaStack {
     /// Creates an empty `PrakriyaStack`.
-    pub fn new(log_steps: bool, is_chandasi: bool, use_svaras: bool) -> Self {
+    pub fn new(
+        log_steps: bool,
+        is_chandasi: bool,
+        use_svaras: bool,
+        nlp_mode: bool,
+        default_choices: Vec<RuleChoice>,
+    ) -> Self {
         Self {
             prakriyas: Vec::new(),
             paths: Vec::new(),
             log_steps,
             is_chandasi,
             use_svaras,
+            nlp_mode,
+            default_choices,
         }
     }
 
@@ -40,6 +53,7 @@ impl PrakriyaStack {
             log_steps: self.log_steps,
             is_chandasi: self.is_chandasi,
             use_svaras: self.use_svaras,
+            nlp_mode: self.nlp_mode,
         })
     }
 
@@ -50,7 +64,28 @@ impl PrakriyaStack {
         self.paths.push(vec![]);
 
         while let Some(path) = self.pop_path() {
-            let p_init = self.new_prakriya(path.clone());
+            // Enforce the default choices requested by the user.
+            if !self.default_choices.is_empty() {
+                let contradicts_default_choices = self
+                    .default_choices
+                    .iter()
+                    .any(|default| path.iter().any(|c| default.rule == c.rule && default != c));
+                if contradicts_default_choices {
+                    continue;
+                }
+            }
+
+            let mut p_init = self.new_prakriya(path.clone());
+            // `p_init.config.rule_choices` is the prakriya-local copy of the rule choices we
+            // *must* make in the derivation.
+            //
+            // - Don't update `p_init.rule_choices` -- these are decisions taken during the
+            //   prakriya, and the program expects them to be ordered by when they were seen.
+            //
+            // - Don't update `path` -- this represents a specific location in the path tree and
+            //   has undefined meaning if modified.
+            p_init.config.rule_choices.extend(&self.default_choices);
+
             match derive(p_init) {
                 Ok(p) => {
                     self.add_new_paths(p.rule_choices(), &path);
@@ -88,16 +123,16 @@ impl PrakriyaStack {
     ///
     /// > Decline(A), Decline(B)
     /// > Decline(A), Accept(B), Decline(D)
-    fn add_new_paths(&mut self, choices: &Vec<RuleChoice>, initial_choices: &[RuleChoice]) {
+    fn add_new_paths(&mut self, choices: &[RuleChoice], initial_choices: &[RuleChoice]) {
         let offset = initial_choices.len();
         for i in offset..choices.len() {
             let mut path = choices[..=i].to_vec();
 
             // Swap the last choice.
             let i = path.len() - 1;
-            path[i] = match path[i] {
-                RuleChoice::Accept(code) => RuleChoice::Decline(code),
-                RuleChoice::Decline(code) => RuleChoice::Accept(code),
+            path[i].decision = match path[i].decision {
+                Decision::Accept => Decision::Decline,
+                Decision::Decline => Decision::Accept,
             };
 
             self.paths.push(path);

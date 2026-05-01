@@ -9,30 +9,25 @@ Operations here include:
 - applying gana sutras
 */
 use crate::args::dhatu::Muladhatu;
-use crate::args::Antargana;
-use crate::args::Gana;
+use crate::args::Sup;
+use crate::args::Upasarga as U;
+use crate::args::{Antargana, Gana, Upasarga};
 use crate::core::errors::*;
 use crate::core::operators as op;
 use crate::core::Rule::Kaumudi;
 use crate::core::Rule::Varttika;
-use crate::core::Tag as T;
 use crate::core::Term;
 use crate::core::{Prakriya, Rule};
+use crate::core::{PrakriyaTag as PT, Tag as T};
 use crate::dhatu_gana as gana;
 use crate::it_samjna;
 use crate::samjna;
-use crate::sounds::{s, Set};
-use lazy_static::lazy_static;
 
-lazy_static! {
-    static ref HAL: Set = s("hal");
-}
-
-/// Adds the mula-dhatu to the prakriya.
+/// Adds the *mūla-dhātu* to the prakriya.
 fn add_mula_dhatu(p: &mut Prakriya, dhatu: &Muladhatu) {
     p.run("1.3.1", |p| {
-        let mut dhatu = Term::make_dhatu(dhatu.upadesha(), dhatu.gana(), dhatu.antargana());
-        dhatu.add_tag(T::Dhatu);
+        let mut dhatu = Term::make_dhatu(dhatu.aupadeshika(), dhatu.gana(), dhatu.antargana());
+        dhatu.add_tags(&[T::Dhatu, T::MulaDhatu]);
         p.push(dhatu);
     });
 }
@@ -83,19 +78,22 @@ fn try_run_gana_sutras(p: &mut Prakriya, i: usize) -> Option<()> {
             is_mit_blocked = true;
         } else if dhatu.has_u("Samo~") {
             is_mit_blocked = p.optional_run(DP("01.0938"), |_| {})
-        } else if dhatu.has_u("yama~") && is_bhvadi && p.has_prev_non_empty(i, |t| t.has_u("AN")) {
+        } else if dhatu.has_u("yama~") && is_bhvadi && p.has_prev_non_empty(i, |t| t.is(U::AN)) {
             // AyAmayati
             // (include only "yama~ aparivezaRe")
             p.step(DP("01.0939"));
             is_mit_blocked = true;
         } else if dhatu.has_u("sKadi~\\r") {
-            if p.has_prev_non_empty(i, |t| t.has_u_in(&["ava", "pari"])) {
+            if p.has_prev_non_empty(i, |t| t.is_any_upasarga(&[U::ava, U::pari])) {
                 // avasKAdayati, parisKAdayati
                 p.step(DP("01.0940"));
                 is_mit_blocked = true;
-            } else if p.has_prev_non_empty(i, |t| t.has_u("apa")) {
+            } else if p.has_prev_non_empty(i, |t| t.is(U::apa)) {
+                // TODO: can't find a source for this.
+                /*
                 // apasKAdayati, apasKadayati
                 is_mit_blocked = p.optional_run(Kaumudi("2353"), |_| {});
+                */
             }
         }
     }
@@ -152,7 +150,7 @@ fn try_run_gana_sutras(p: &mut Prakriya, i: usize) -> Option<()> {
     } else if dhatu.has_gana(Gana::Tanadi) {
         if dhatu.has_u("vanu~\\") {
             // vanute, vanoti
-            p.optional_run_at(Kaumudi("2547"), i, |t| t.remove_tag(T::anudattet));
+            p.optional_run_at(Kaumudi("2547.2"), i, |t| t.remove_tag(T::anudattet));
         }
     } else if is_curadi {
         if dhatu.has_u_in(gana::JNAP_ADI) {
@@ -193,9 +191,9 @@ fn try_run_gana_sutras(p: &mut Prakriya, i: usize) -> Option<()> {
         let dhatu = p.get(i)?;
         if !dhatu.has_tag(T::FlagNoNic) {
             if dhatu.has_antargana(Antargana::Akusmiya) {
-                p.run(DP("10.0496"), |p| p.add_tag(T::Atmanepada));
+                p.run(DP("10.0496"), |p| p.add_tag(PT::Atmanepada));
             } else if dhatu.has_u_in(gana::AA_GARVIYA) {
-                p.run(DP("10.0497"), |p| p.add_tag(T::Atmanepada));
+                p.run(DP("10.0497"), |p| p.add_tag(PT::Atmanepada));
             }
         }
     }
@@ -262,18 +260,24 @@ fn try_add_num_agama(p: &mut Prakriya, i: usize) {
 
 /// Adds prefixes from `dhatu` into the prakriya.
 pub fn try_add_prefixes(p: &mut Prakriya, prefixes: &[String]) -> Option<()> {
-    let mut i_offset = p.find_first(T::Dhatu).unwrap_or(0);
+    let mut i_offset = p.find_first_with_tag(T::Dhatu).unwrap_or(0);
 
     // TODO: prefixes that aren't upasargas?
     for prefix in prefixes {
-        let t = Term::make_upadesha(&prefix);
-        p.insert_before(i_offset, t);
+        let mut t: Term = match prefix.parse::<Upasarga>() {
+            Ok(u) => u.into(),
+            _ => Term::make_upadesha(prefix),
+        };
+        // For now, assume all dhatu prefixes are gati.
+        t.add_tag(T::Gati);
+
+        p.insert(i_offset, t);
         samjna::try_nipata_rules(p, i_offset);
 
-        let mut su = Term::make_upadesha("su~");
-        su.add_tags(&[T::Pada, T::V1, T::Sup, T::Ekavacana, T::Luk, T::Pratyaya]);
+        let mut su = Term::from(Sup::su);
+        su.add_tags(&[T::Pada, T::V1, T::Ekavacana, T::Luk]);
         su.set_text("");
-        p.insert_before(i_offset + 1, su);
+        p.insert(i_offset + 1, su);
 
         // Don't run it-samjna-prakarana for other upasargas (e.g. sam, ud)
         // TODO: why run only for AN?
@@ -305,7 +309,7 @@ pub fn run(p: &mut Prakriya, dhatu: &Muladhatu) -> Result<()> {
         add_samjnas(p, i_dhatu);
 
         if p.has(i_dhatu, |t| t.is_empty()) {
-            return Err(Error::invalid_upadesha(dhatu.upadesha()));
+            return Err(Error::invalid_aupadeshika(dhatu.aupadeshika()));
         }
     }
 
@@ -331,11 +335,10 @@ pub fn run(p: &mut Prakriya, dhatu: &Muladhatu) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::args::Slp1String;
 
-    fn check(text: &str, code: &str) -> Term {
-        let (gana, _number) = code.split_once('.').expect("valid");
-        let gana: u8 = gana.parse().expect("ok");
-        let dhatu = Muladhatu::new(text, gana.to_string().parse().unwrap());
+    fn check(text: &str, gana: Gana) -> Term {
+        let dhatu = Muladhatu::new(Slp1String::try_from(text).expect("ok"), gana);
         let mut p = Prakriya::new();
         run(&mut p, &dhatu).expect("ok");
         p.get(0).expect("ok").clone()
@@ -343,50 +346,50 @@ mod tests {
 
     #[test]
     fn test_basic() {
-        let t = check("ga\\mx~", "01.1137");
+        let t = check("ga\\mx~", Gana::Bhvadi);
         assert_eq!(t.text, "gam");
         assert!(t.is_dhatu());
     }
 
     #[test]
     fn test_ghu() {
-        let t = check("qudA\\Y", "03.0010");
+        let t = check("qudA\\Y", Gana::Juhotyadi);
         assert_eq!(t.text, "dA");
         assert!(t.has_all_tags(&[T::Dhatu, T::Ghu]));
     }
 
     #[test]
     fn test_satva() {
-        let t = check("zaha~\\", "01.0988");
+        let t = check("zaha~\\", Gana::Bhvadi);
         assert_eq!(t.text, "sah");
         assert!(t.has_all_tags(&[T::Dhatu, T::FlagSaAdeshadi]));
 
-        let t = check("zWA\\", "01.1077");
+        let t = check("zWA\\", Gana::Bhvadi);
         assert_eq!(t.text, "sTA");
         assert!(t.has_all_tags(&[T::Dhatu, T::FlagSaAdeshadi]));
     }
 
     #[test]
     fn test_satva_blocked() {
-        let t = check("zWivu~", "04.0004");
+        let t = check("zWivu~", Gana::Bhvadi);
         assert_eq!(t.text, "zWiv");
         assert!(!t.has_tag(T::FlagSaAdeshadi));
 
-        let t = check("zvazka~\\", "01.0105");
+        let t = check("zvazka~\\", Gana::Bhvadi);
         assert_eq!(t.text, "zvazk");
         assert!(!t.has_tag(T::FlagSaAdeshadi));
     }
 
     #[test]
     fn test_natva() {
-        let t = check("RI\\Y", "01.1049");
+        let t = check("RI\\Y", Gana::Bhvadi);
         assert_eq!(t.text, "nI");
         assert!(t.has_all_tags(&[T::Dhatu, T::FlagNaAdeshadi]));
     }
 
     #[test]
     fn test_num_agama() {
-        let t = check("vadi~\\", "01.0011");
+        let t = check("vadi~\\", Gana::Bhvadi);
         assert_eq!(t.text, "vand");
         assert!(t.is_dhatu());
     }

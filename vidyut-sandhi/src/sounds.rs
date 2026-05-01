@@ -1,39 +1,7 @@
 //! Utility functions for checking Sanskrit sounds.
 
-use lazy_static::lazy_static;
-
-/// A set of Sanskrit sounds.
-///
-/// This implementation is copied directly from `vidyut_prakriya::sounds`. For details, see the
-/// comments there.
-pub struct Set([u8; 256]);
-
-impl Set {
-    /// Creates an empty set.
-    pub fn new() -> Self {
-        Set([0; 256])
-    }
-
-    /// Creates a set whose members are the characters in `string`.
-    pub fn from(string: impl AsRef<str>) -> Self {
-        let mut res = Self::new();
-        for c in string.as_ref().chars() {
-            res.0[c as usize] = 1;
-        }
-        res
-    }
-
-    /// Returns whether the set contains the given sound.
-    pub fn contains(&self, c: char) -> bool {
-        self.0[c as usize] == 1
-    }
-}
-
-impl Default for Set {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+use std::sync::OnceLock;
+pub(crate) use vidyut_akshara::Set;
 
 /// Returns whether the given character is a Sanskrit sound or *avagraha*.
 ///
@@ -42,10 +10,9 @@ impl Default for Set {
 /// - other punctuation characters (|, ||, numbers)
 /// - characters or symbols from non-SLP1 encodings
 pub fn is_sanskrit(c: char) -> bool {
-    lazy_static! {
-        static ref CHARS: Set = Set::from("aAiIuUfFxXeEoOMHkKgGNcCjJYwWqQRtTdDnpPbBmyrlvSzshL'");
-    }
-    CHARS.contains(c)
+    static CHARS: OnceLock<Set> = OnceLock::new();
+    CHARS.get_or_init(|| Set::from("aAiIuUfFxXeEoOMHkKgGNcCjJYwWqQRtTdDnpPbBmyrlvSzshL'"));
+    CHARS.get().unwrap().contains(c)
 }
 
 /// Returns whether the given sound is a vowel.
@@ -53,19 +20,17 @@ pub fn is_sanskrit(c: char) -> bool {
 /// `ac` is the Paninian name for the Sanskrit vowels.
 #[allow(dead_code)]
 pub fn is_ac(c: char) -> bool {
-    lazy_static! {
-        static ref AC: Set = Set::from("aAiIuUfFxXeEoO");
-    }
-    AC.contains(c)
+    static AC: OnceLock<Set> = OnceLock::new();
+    AC.get_or_init(|| Set::from("aAiIuUfFxXeEoO"));
+    AC.get().unwrap().contains(c)
 }
 
 /// Returns whether the given sound is voiced.
 #[allow(dead_code)]
 pub fn is_ghosha(c: char) -> bool {
-    lazy_static! {
-        static ref GHOSHA: Set = Set::from("aAiIuUfFxXeEoOgGNjJYqQRdDnbBmyrlvh");
-    }
-    GHOSHA.contains(c)
+    static GHOSHA: OnceLock<Set> = OnceLock::new();
+    GHOSHA.get_or_init(|| Set::from("aAiIuUfFxXeEoOgGNjJYqQRdDnbBmyrlvh"));
+    GHOSHA.get().unwrap().contains(c)
 }
 
 #[cfg(test)]

@@ -272,6 +272,46 @@ fn sanskrit_dependent_vowels() {
     );
 }
 
+// TODO: not very familiar with pluta, check with someone who knows better.
+#[test]
+fn sanskrit_pluta() {
+    // Independent vowels.
+    assert_two_way_pairwise(&[
+        (
+            HarvardKyoto,
+            "a3 A3 i3 I3 u3 U3 R3 RR3 lR3 lRR3 e3 ai3 o3 au3",
+        ),
+        (Slp1, "a3 A3 i3 I3 u3 U3 f3 F3 x3 X3 e3 E3 o3 O3"),
+        (Devanagari, "अ३ आ३ इ३ ई३ उ३ ऊ३ ऋ३ ॠ३ ऌ३ ॡ३ ए३ ऐ३ ओ३ औ३"),
+        (Grantha, "𑌅𑍝 𑌆𑍝 𑌇𑍝 𑌈𑍝 𑌉𑍝 𑌊𑍝 𑌋𑍝 𑍠𑍝 𑌌𑍝 𑍡𑍝 𑌏𑍝 𑌐𑍝 𑌓𑍝 𑌔𑍝"),
+    ]);
+
+    // Dependent vowels.
+    assert_two_way_pairwise(&[
+        (
+            HarvardKyoto,
+            "ka3 kA3 ki3 kI3 ku3 kU3 kR3 kRR3 klR3 klRR3 ke3 kai3 ko3 kau3",
+        ),
+        (
+            Slp1,
+            "ka3 kA3 ki3 kI3 ku3 kU3 kf3 kF3 kx3 kX3 ke3 kE3 ko3 kO3",
+        ),
+        (Devanagari, "क३ का३ कि३ की३ कु३ कू३ कृ३ कॄ३ कॢ३ कॣ३ के३ कै३ को३ कौ३"),
+        (
+            Grantha,
+            "𑌕𑍝 𑌕𑌾𑍝 𑌕𑌿𑍝 𑌕𑍀𑍝 𑌕𑍁𑍝 𑌕𑍂𑍝 𑌕𑍃𑍝 𑌕𑍄𑍝 𑌕𑍢𑍝 𑌕𑍣𑍝 𑌕𑍇𑍝 𑌕𑍈𑍝 𑌕𑍋𑍝 𑌕𑍌𑍝",
+        ),
+    ]);
+
+    // Candrabindu.
+    assert_two_way_pairwise(&[
+        (HarvardKyoto, "a~3 ka~3"),
+        (HarvardKyoto, "a~3 ka~3"),
+        (Devanagari, "अँ३ कँ३"),
+        (Grantha, "𑌅𑌁௩ 𑌕𑌁௩"),
+    ]);
+}
+
 #[test]
 fn sanskrit_ayogavahas() {
     assert_two_way_pairwise(&[
@@ -451,6 +491,24 @@ fn sanskrit_consonants_non_vedic() {
             "ꨆ ꨇ ꨈ ꨉ ꨋ ꨌ ꨍ ꨎ ꨏ ꨑ ꨓ ꨔ ꨕ ꨖ ꨘ ꨓ ꨔ ꨕ ꨖ ꨘ ꨚ ꨜ ꨝ ꨞ ꨠ ꨢ ꨣ ꨤ ꨥ ꨦ ꨦ ꨧ ꨨ",
         )],
     );
+}
+
+// Test only Latin schemes, since most Brahmic schemes will just use a candrabindu here.
+#[test]
+fn sanskrit_nasal_semivowels() {
+    // Example from https://list.indology.info/pipermail/indology/2023-October/058252.html
+    let deva_text = "त्रील्ँलोकान्";
+
+    assert_two_way_pairwise(&[
+        (Devanagari, deva_text),
+        (Iast, "trīlm̐lokān"),
+        (Iso15919, "trīlm̐lōkān"),
+        (Slp1, "trIl~lokAn"),
+    ]);
+
+    // Alternate for IAST.
+    // TODO: or should this be preferred?
+    assert_transliterate("trīl̃lokān", Iast, Devanagari, deva_text);
 }
 
 #[test]
@@ -965,6 +1023,56 @@ fn iso_15919_bug_no_greedy_match_on_nfd() {
 }
 
 #[test]
+fn iso_15919_colon_separator() {
+    // Consonants
+    assert_two_way_pairwise(&[
+        (
+            Iso15919,
+            "k:ha g:ha c:ha j:ha ṭ:ha ḍ:ha t:ha d:ha p:ha b:ha",
+        ),
+        (Slp1, "kha gha cha jha wha qha tha dha pha bha"),
+        (Devanagari, "क्ह ग्ह च्ह ज्ह ट्ह ड्ह त्ह द्ह प्ह ब्ह"),
+        (Kannada, "ಕ್ಹ ಗ್ಹ ಚ್ಹ ಜ್ಹ ಟ್ಹ ಡ್ಹ ತ್ಹ ದ್ಹ ಪ್ಹ ಬ್ಹ"),
+    ]);
+
+    // Consonants with marks
+    assert_two_way_pairwise(&[
+        (
+            Iso15919,
+            "k:hā g:hā c:hā j:hā ṭ:hā ḍ:hā t:hā d:hā p:hā b:hā",
+        ),
+        (Slp1, "khA ghA chA jhA whA qhA thA dhA phA bhA"),
+        (Devanagari, "क्हा ग्हा च्हा ज्हा ट्हा ड्हा त्हा द्हा प्हा ब्हा"),
+        (Kannada, "ಕ್ಹಾ ಗ್ಹಾ ಚ್ಹಾ ಜ್ಹಾ ಟ್ಹಾ ಡ್ಹಾ ತ್ಹಾ ದ್ಹಾ ಪ್ಹಾ ಬ್ಹಾ"),
+    ]);
+
+    // Consonants with viramas
+    assert_two_way_pairwise(&[
+        (Iso15919, "k:h g:h c:h j:h ṭ:h ḍ:h t:h d:h p:h b:h"),
+        (Slp1, "kh gh ch jh wh qh th dh ph bh"),
+        (Devanagari, "क्ह् ग्ह् च्ह् ज्ह् ट्ह् ड्ह् त्ह् द्ह् प्ह् ब्ह्"),
+        (Kannada, "ಕ್ಹ್ ಗ್ಹ್ ಚ್ಹ್ ಜ್ಹ್ ಟ್ಹ್ ಡ್ಹ್ ತ್ಹ್ ದ್ಹ್ ಪ್ಹ್ ಬ್ಹ್"),
+    ]);
+
+    // Vowels
+    assert_two_way_pairwise(&[
+        (Iso15919, "a:i a:u ka:i ka:u"),
+        (Slp1, "ai au kai kau"),
+        (Devanagari, "अइ अउ कइ कउ"),
+        (Kannada, "ಅಇ ಅಉ ಕಇ ಕಉ"),
+    ]);
+
+    // Regular colons -- ignore
+    // TODO: what's the best policy for handling these?
+    assert_two_way_pairwise(&[
+        (Iso15919, "a: ka: k: a:ā k:ta"),
+        (Slp1, "a: ka: k: a:A k:ta"),
+        (Devanagari, "अ: क: क्: अ:आ क्:त"),
+        (Kannada, "ಅ: ಕ: ಕ್: ಅ:ಆ ಕ್:ತ"),
+    ]);
+}
+
+#[test]
 fn iso_15919_tamil_aytam() {
     assert_transliterate("ஃ", Tamil, Iso15919, "ḳ");
     assert_transliterate("\u{1e33}", Iso15919, Tamil, "ஃ");
@@ -1173,4 +1281,13 @@ fn velthuis_basic() {
     );
     // Extended consonants
     assert_has("qa .kha .ga za Ra Rha fa", "क़ ख़ ग़ ज़ ड़ ढ़ फ़");
+}
+
+// Other bugs
+// ----------
+
+/// Tests that skipping unmappable content doesn't land within a char boundry.
+#[test]
+fn test_mixed_content() {
+    assert_transliterate("saMskftam 漢語", HarvardKyoto, Devanagari, "संस्क्फ़्तम् 漢語");
 }

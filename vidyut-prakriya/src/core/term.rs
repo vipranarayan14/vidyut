@@ -1,11 +1,13 @@
-use crate::args::{Antargana, Gana, Unadi};
+use crate::args::{
+    Agama, Antargana, Aupadeshika, BaseKrt as Krt, Gana, Lakara, Sanadi, Sanadi as S, Stri, Sup,
+    Taddhita, Tin, Unadi, Upasarga, Vikarana,
+};
 use crate::core::Tag;
+use crate::ganapatha::GanapathaEntry;
 use crate::sounds;
 use crate::sounds::Pattern;
-use crate::sounds::{s, Set};
+use crate::sounds::AC;
 use enumset::EnumSet;
-
-use lazy_static::lazy_static;
 
 // Abstracts our choice of String type so we can try other implementations.
 //
@@ -31,23 +33,6 @@ use lazy_static::lazy_static;
 // `CompactString` everywhere.
 pub(crate) type TermString = String;
 
-lazy_static! {
-    static ref AC: Set = s("ac");
-}
-
-/// Models the svaras on a particular `Term`.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub(crate) enum Svara {
-    /// Indicates that the entire `Term` has the *anudAtta* accent.
-    Anudatta,
-    /// Indicates that the `Term` has the *udAtta* accent on the specified vowel. If the first
-    /// vowel receives the accent, we store `0`; if the second vowel, `1`; and so on.
-    Udatta(usize),
-    /// Indicates that the `Term` has the *svarita* accent on the specified vowel. If the first
-    /// vowel receives the accent, we store `0`; if the second vowel, `1`; and so on.
-    Svarita(usize),
-}
-
 /// A string with additional metadata.
 ///
 /// A typical prakriya uses various kinds of terms. For example, the prakriya for *cakAra* contains
@@ -65,7 +50,7 @@ pub(crate) enum Svara {
 ///
 /// `Term` provides a rich API that is concise yet readable. Almost all mutations to a `Prakriya`
 /// occur through the use of the `Term` API.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct Term {
     /// The *aupadeshika* form of this term, if one exists.
     ///
@@ -82,18 +67,55 @@ pub struct Term {
     pub(crate) svara: Option<Svara>,
     /// Various metadata associated with this term.
     pub(crate) tags: EnumSet<Tag>,
+    /// Experimental new field.
+    pub(crate) morph: Morph,
+    pub(crate) lakara: Option<Lakara>,
     /// The form of the term to use for sthAnivad-bhAva substitutions, e.g. for dvitva on the
     /// dhatu. For example, when applying dvitva for BAvi, the abhyasa should be BO, not BAv.
     ///
-    /// For a complete example in English, see S. C. Vasu's commentary on rule 1.1.59, part (e).
+    /// For a complete understanding in English, please see S. C. Vasu's commentaries
+    /// 1.1.[56-59] and specifically 1.1.59 part (e).
+    ///
+    /// Implementation notes:
+    ///  - If Term is a dhatu this should ideally be a WriteOnce field (due to the absence of
+    ///    2+ hop transitive dhatu Adesha)
+    ///
     sthanivat: TermString,
     /// If this term is a dhatu, the dhatu's gana.
     gana: Option<Gana>,
     /// If this term is a dhatu, the dhatu's antargana.
     antargana: Option<Antargana>,
-    /// All upadeshas that this term has had. This field is called `lakshanas` per rule 1.1.62
-    /// (*pratyayalopa pratyaylakshanam*).
-    lakshanas: Vec<TermString>,
+}
+
+/// Models the svaras on a particular `Term`.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub(crate) enum Svara {
+    /// Indicates that the entire `Term` has the *anudAtta* accent.
+    Anudatta,
+    /// Indicates that the `Term` has the *udAtta* accent on the specified vowel. If the first
+    /// vowel receives the accent, we store `0`; if the second vowel, `1`; and so on.
+    Udatta(usize),
+    /// Indicates that the `Term` has the *svarita* accent on the specified vowel. If the first
+    /// vowel receives the accent, we store `0`; if the second vowel, `1`; and so on.
+    Svarita(usize),
+}
+
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub(crate) enum Morph {
+    None,
+    Abhyasa,
+    Agama(Agama),
+    BasicPratipadika,
+    Dhatu(Aupadeshika),
+    Krt(Krt),
+    Sanadi(Sanadi),
+    Stri(Stri),
+    Sup(Sup),
+    Taddhita(Taddhita),
+    Tin(Tin),
+    Unadi(Unadi),
+    Upasarga(Upasarga),
+    Vikarana(Vikarana),
 }
 
 impl Term {
@@ -109,8 +131,9 @@ impl Term {
             tags: EnumSet::new(),
             gana: None,
             antargana: None,
-            lakshanas: Vec::new(),
             svara: None,
+            morph: Morph::None,
+            lakara: None,
         }
     }
 
@@ -119,27 +142,38 @@ impl Term {
         Term {
             u: None,
             text: TermString::from(s),
-            sthanivat: TermString::from(s),
+            sthanivat: TermString::from(""),
             tags: EnumSet::new(),
             gana: None,
             antargana: None,
-            lakshanas: Vec::new(),
             svara: None,
+            morph: Morph::None,
+            lakara: None,
         }
     }
 
     /// Creates a new dhatu.
     pub fn make_dhatu(s: &str, gana: Gana, antargana: Option<Antargana>) -> Self {
         let mut t = Term::make_upadesha(s);
+        let morph = match s.parse::<Aupadeshika>() {
+            Ok(au) => Morph::Dhatu(au),
+            Err(_) => Morph::None,
+        };
+        t.morph = morph;
         t.gana = Some(gana);
         t.antargana = antargana;
         t
     }
 
-    /// Creates a new Agama.
-    pub fn make_agama(s: &str) -> Self {
+    pub fn make_pratipadika(s: &str) -> Self {
         let mut t = Term::make_upadesha(s);
-        t.add_tag(Tag::Agama);
+        t.morph = Morph::BasicPratipadika;
+        t
+    }
+
+    pub fn make_abhyasa(s: &str) -> Self {
+        let mut t = Term::make_text(s);
+        t.morph = Morph::Abhyasa;
         t
     }
 
@@ -172,7 +206,11 @@ impl Term {
 
     /// Returns the number of vowels contained in this term's text.
     pub fn num_vowels(&self) -> usize {
-        self.text.chars().filter(|c| AC.contains(*c)).count()
+        self.text
+            .as_bytes()
+            .iter()
+            .filter(|c| AC.contains(**c as char))
+            .count()
     }
 
     /// Wrapper over `TermString::len`.
@@ -190,28 +228,41 @@ impl Term {
 
     /// Returns the first sound in the term if it exists.
     pub fn adi(&self) -> Option<char> {
-        self.text.chars().next()
+        self.text.bytes().next().map(|x| x as char)
+    }
+
+    /// Returns the first sound in the term's aupadeshika form.
+    pub fn u_adi(&self) -> Option<char> {
+        self.u.as_ref()?.bytes().next().map(|x| x as char)
     }
 
     /// Returns the last sound in the term if it exists.
     pub fn antya(&self) -> Option<char> {
-        self.text.chars().rev().next()
+        self.text.bytes().last().map(|x| x as char)
     }
 
     /// Returns the penultimate sound in the term if it exists.
     ///
     /// (1.1.65 alo'ntyāt pūrva upadhā)
     pub fn upadha(&self) -> Option<char> {
-        self.text.chars().rev().nth(1)
+        self.get_rev(1)
     }
 
     pub fn last_vowel(&self) -> Option<char> {
-        self.chars().rev().filter(|c| sounds::is_ac(*c)).next()
+        self.text
+            .bytes()
+            .rev()
+            .find(|c| sounds::is_ac(*c as char))
+            .map(|b| b as char)
     }
 
     /// Returns the sound at index `i` if it exists.
-    pub fn get_at(&self, i: usize) -> Option<char> {
-        self.text.as_bytes().get(i).map(|x| *x as char)
+    pub fn get(&self, i: usize) -> Option<char> {
+        self.text.bytes().nth(i).map(|x| x as char)
+    }
+
+    pub fn get_rev(&self, i: usize) -> Option<char> {
+        self.text.bytes().rev().nth(i).map(|c| c as char)
     }
 
     // Sound properties
@@ -227,6 +278,11 @@ impl Term {
     /// Returns whether the term has a first sound that matches the given pattern.
     pub fn has_adi(&self, pattern: impl Pattern) -> bool {
         self.matches_sound_pattern(self.adi(), pattern)
+    }
+
+    /// Returns whether the term in aupadeshika form has a first sound that matches the given pattern.
+    pub fn has_u_adi(&self, pattern: impl Pattern) -> bool {
+        self.matches_sound_pattern(self.u_adi(), pattern)
     }
 
     /// Returns whether the term has a final sound that matches the given pattern.
@@ -245,7 +301,7 @@ impl Term {
 
     /// Returns whether the term has a sound at index `i` that matches the given pattern.
     pub fn has_at(&self, i: usize, pattern: impl Pattern) -> bool {
-        self.matches_sound_pattern(self.get_at(i), pattern)
+        self.matches_sound_pattern(self.get(i), pattern)
     }
 
     /// Returns whether the term has exactly one vowel.
@@ -261,12 +317,26 @@ impl Term {
 
     /// Returns whether the term begins with a conjunct consonant.
     pub fn is_samyogadi(&self) -> bool {
-        sounds::is_samyogadi(&self.text)
+        if self.get(0).map_or(false, sounds::is_hal) {
+            if self.get(1).map_or(false, sounds::is_hal) {
+                return true;
+            }
+        }
+        false
     }
 
     /// Returns whether the term ends in a conjunct consonant.
     pub fn is_samyoganta(&self) -> bool {
-        sounds::is_samyoganta(&self.text)
+        if let Some(x) = self.get_rev(0) {
+            // HACK: always treat a string ending with `C` as samyogAnta since it either follows a
+            // consonant or will become cC by 6.1.73.
+            if x == 'C' {
+                return true;
+            }
+            sounds::is_hal(x) && self.get_rev(1).map_or(false, sounds::is_hal)
+        } else {
+            false
+        }
     }
 
     /// Returns whether the last sound of the term is a short vowel.
@@ -283,27 +353,6 @@ impl Term {
             Some(c) => sounds::is_dirgha(c),
             None => false,
         }
-    }
-
-    /// Returns whether the first syllable of the term is or could be laghu.
-    #[allow(dead_code)]
-    pub fn is_laghu_adi(&self) -> bool {
-        let mut had_ac = false;
-        let mut num_consonants = 0;
-        for c in self.text.chars() {
-            if sounds::is_ac(c) {
-                if sounds::is_dirgha(c) {
-                    return false;
-                }
-                had_ac = true;
-            } else if had_ac {
-                num_consonants += 1;
-                if num_consonants > 1 {
-                    return false;
-                }
-            }
-        }
-        true
     }
 
     /// Returns whether the last syllable of the term is or could be laghu.
@@ -339,29 +388,118 @@ impl Term {
     /// Returns whether the term has a specific aupadeshika form.
     pub fn has_u(&self, s: &str) -> bool {
         match &self.u {
-            Some(u) => u == &s,
+            Some(u) => u == s,
             None => false,
         }
     }
 
     /// Returns whether the term has an aupadeshika in the specified list.
-    pub fn has_u_in(&self, items: &[&str]) -> bool {
+    pub(crate) fn has_u_in(&self, items: impl Strings) -> bool {
         match &self.u {
-            Some(u) => items.contains(&u.as_str()),
+            Some(u) => items.as_strings().contains(&u.as_str()),
             None => false,
         }
     }
 
-    pub fn has_any_lakshana(&self) -> bool {
-        !self.lakshanas.is_empty()
+    pub fn has_dhatu_u_in(&self, items: &[&str]) -> bool {
+        if self.is_mula_dhatu() {
+            match &self.u {
+                Some(u) => items.contains(&u.as_str()),
+                None => false,
+            }
+        } else {
+            false
+        }
     }
 
-    pub fn has_lakshana(&self, u: &str) -> bool {
-        self.lakshanas.iter().any(|s| s == &u)
+    pub fn has_lakara(&self, la: Lakara) -> bool {
+        self.lakara == Some(la)
     }
 
-    pub fn has_lakshana_in(&self, us: &[&str]) -> bool {
-        self.lakshanas.iter().any(|s| us.contains(&s.as_str()))
+    pub fn has_lakara_in(&self, las: &[Lakara]) -> bool {
+        match self.lakara {
+            Some(la) => las.contains(&la),
+            _ => false,
+        }
+    }
+
+    pub fn is_lin_lakara(&self) -> bool {
+        matches!(self.lakara, Some(Lakara::AshirLin) | Some(Lakara::VidhiLin))
+    }
+
+    pub(crate) fn is(&self, val: impl Into<Morph>) -> bool {
+        self.morph == val.into()
+    }
+
+    /// Returns whether the term has a specific aupadeshika form.
+    pub fn is_u(&self, au: Aupadeshika) -> bool {
+        self.morph == Morph::Dhatu(au)
+    }
+
+    /// Returns whether the term has a specific aupadeshika form.
+    pub fn is_any_u(&self, items: &[Aupadeshika]) -> bool {
+        match self.morph {
+            Morph::Dhatu(au) => items.contains(&au),
+            _ => false,
+        }
+    }
+
+    pub(crate) fn is_any_phit(&self, items: impl Strings) -> bool {
+        if matches!(self.morph, Morph::BasicPratipadika) {
+            self.u
+                .as_ref()
+                .map_or(false, |u| items.as_strings().contains(&u.as_str()))
+        } else {
+            false
+        }
+    }
+
+    pub(crate) fn is_any_krt(&self, vals: &[Krt]) -> bool {
+        if let Morph::Krt(k) = self.morph {
+            vals.contains(&k)
+        } else {
+            false
+        }
+    }
+
+    pub(crate) fn is_any_sanadi(&self, vals: &[Sanadi]) -> bool {
+        if let Morph::Sanadi(t) = self.morph {
+            vals.contains(&t)
+        } else {
+            false
+        }
+    }
+
+    pub(crate) fn is_any_sup(&self, vals: &[Sup]) -> bool {
+        if let Morph::Sup(t) = self.morph {
+            vals.contains(&t)
+        } else {
+            false
+        }
+    }
+
+    pub(crate) fn is_any_taddhita(&self, vals: &[Taddhita]) -> bool {
+        if let Morph::Taddhita(t) = self.morph {
+            vals.contains(&t)
+        } else {
+            false
+        }
+    }
+
+    pub(crate) fn is_any_unadi(&self, vals: &[Unadi]) -> bool {
+        if let Morph::Unadi(unadi) = self.morph {
+            vals.contains(&unadi)
+        } else {
+            false
+        }
+    }
+
+    pub(crate) fn is_any_upasarga(&self, vals: &[Upasarga]) -> bool {
+        if let Morph::Upasarga(x) = self.morph {
+            vals.contains(&x)
+        } else {
+            false
+        }
     }
 
     /// Returns whether the term has the provided text.
@@ -370,8 +508,8 @@ impl Term {
     }
 
     /// Returns whether the term's text is equal to any of the strings in `items`.
-    pub fn has_text_in(&self, items: &[&str]) -> bool {
-        items.contains(&self.text.as_str())
+    pub(crate) fn has_text_in(&self, items: impl Strings) -> bool {
+        items.as_strings().contains(&self.text.as_str())
     }
 
     /// Returns whether the term's text starts with any of the given `prefixes`.
@@ -380,8 +518,8 @@ impl Term {
     }
 
     /// Returns whether the term's text ends with any of the given `suffixes`.
-    pub fn has_suffix_in(&self, suffixes: &[&str]) -> bool {
-        suffixes.iter().any(|t| self.text.ends_with(t))
+    pub(crate) fn has_suffix_in(&self, suffixes: impl Strings) -> bool {
+        suffixes.as_strings().iter().any(|t| self.text.ends_with(t))
     }
 
     /// Returns whether the term's text starts with the given `prefix`.
@@ -443,7 +581,7 @@ impl Term {
 
     /// Returns whether the term is an Agama.
     pub fn is_agama(&self) -> bool {
-        self.has_tag(Tag::Agama)
+        matches!(self.morph, Morph::Agama(_))
     }
 
     /// Returns whether the term has the `Ardhadhatuka` samjna.
@@ -461,19 +599,6 @@ impl Term {
         self.has_tag(Tag::Avyaya)
     }
 
-    /// Returns whether the term is "final," i.e. whether it has been through at least one full
-    /// pass of the grammar.
-    ///
-    /// We track "finality" so that we can avoid re-running rules on terms where doing so makes no
-    /// sense.
-    ///
-    /// Examples:
-    /// - We should not change the Qa of rUQA to eya (7.1.2).
-    /// - We should not change the DO of DOta to DA (6.1.45).
-    pub fn is_final(&self) -> bool {
-        self.has_tag(Tag::Final)
-    }
-
     pub fn is_ekavacana(&self) -> bool {
         self.has_tag(Tag::Ekavacana)
     }
@@ -482,13 +607,22 @@ impl Term {
     ///
     /// (experimental)
     pub fn is_anga(&self) -> bool {
-        // `is_pratyaya` is for Snu (sunoti).
-        self.is_dhatu() || self.is_pratipadika_or_nyapu() || self.is_pratyaya()
+        self.has_tag(Tag::Anga)
+    }
+
+    /// Returns whether the term is a basic pratipadika.
+    pub fn is_basic_pratipadika(&self) -> bool {
+        matches!(self.morph, Morph::BasicPratipadika)
     }
 
     /// Returns whether the term has the `Dhatu` samjna.
     pub fn is_dhatu(&self) -> bool {
         self.has_tag(Tag::Dhatu)
+    }
+
+    /// Returns whether the term has the `Dhatu` samjna.
+    pub fn is_mula_dhatu(&self) -> bool {
+        self.has_tag(Tag::MulaDhatu)
     }
 
     /// Returns whether the term has the `Gati` samjna.
@@ -512,7 +646,7 @@ impl Term {
     }
 
     pub fn is_kya(&self) -> bool {
-        self.has_u_in(&["kyaN", "kyac", "kyaz"])
+        self.is(S::kyaN) || self.is(S::kyac) || self.has_u("kyaz")
     }
 
     /// Returns whether the term has undergone lopa (1.1.60)
@@ -522,7 +656,22 @@ impl Term {
 
     /// Returns whether the term is `Ric` or `RiN`.
     pub fn is_ni_pratyaya(&self) -> bool {
-        self.has_u_in(&["Ric", "RiN"])
+        self.has_tag(Tag::Pratyaya) && (self.is(Sanadi::Ric) || self.has_u("RiN"))
+    }
+
+    pub fn is_nic(&self) -> bool {
+        matches!(self.morph, Morph::Sanadi(Sanadi::Ric))
+    }
+
+    pub fn is_san(&self) -> bool {
+        matches!(self.morph, Morph::Sanadi(Sanadi::san))
+    }
+
+    pub fn is_yan(&self) -> bool {
+        match self.morph {
+            Morph::Sanadi(s) => matches!(s, Sanadi::yaN | Sanadi::yaNluk),
+            _ => false,
+        }
     }
 
     /// Returns whether the term has the `Krt` samjna.
@@ -555,7 +704,7 @@ impl Term {
     /// 2. The term is a nyAp-pratyaya.
     /// 3. The term is the strI-pratyaya UN.
     pub fn is_pratipadika_or_nyapu(&self) -> bool {
-        self.has_tag(Tag::Pratipadika) || self.is_nyap_pratyaya() || self.has_u("UN")
+        self.has_tag(Tag::Pratipadika) || matches!(self.morph, Morph::Stri(_))
     }
 
     /// Returns whether the term has the `Pratyaya` samjna.
@@ -568,22 +717,28 @@ impl Term {
         self.has_tag(Tag::Sankhya)
     }
 
-    /// Returns whether the term is an unAdi-pratyaya.
+    /// Returns whether the term is an *uṇādi pratyaya*.
     pub fn is_unadi(&self) -> bool {
-        self.has_tag(Tag::Unadi)
-    }
-
-    /// Returns whether the term is an unAdi-pratyaya.
-    pub fn has_unadi(&self, unadi: Unadi) -> bool {
-        self.has_tag(Tag::Unadi) && self.has_u(unadi.as_str())
+        matches!(self.morph, Morph::Unadi(_))
     }
 
     pub fn is_aap_pratyaya(&self) -> bool {
-        self.has_tag(Tag::Pratyaya) && self.has_u_in(&["cAp", "wAp", "qAp"])
+        use Stri::*;
+        match self.morph {
+            Morph::Stri(s) => matches!(s, cAp | wAp | qAp),
+            _ => false,
+        }
+    }
+
+    pub fn is_stri_pratyaya(&self) -> bool {
+        matches!(self.morph, Morph::Stri(_))
     }
 
     pub fn is_nyap_pratyaya(&self) -> bool {
-        self.has_tag(Tag::Pratyaya) && self.has_u_in(&["cAp", "wAp", "qAp", "NIn", "NIp", "NIz"])
+        match self.morph {
+            Morph::Stri(s) => s != Stri::UN,
+            _ => false,
+        }
     }
 
     /// Returns whether the term has the `Taddhita` samjna.
@@ -628,6 +783,7 @@ impl Term {
 
     /// Returns whether the term has the `Upasarga` samjna.
     pub fn is_upasarga(&self) -> bool {
+        // Must check tag due to extensions like "antar".
         self.has_tag(Tag::Upasarga)
     }
 
@@ -636,13 +792,18 @@ impl Term {
         self.has_tag(Tag::Vibhakti)
     }
 
+    /// Returns whether the term has the `Vibhakti` samjna.
+    pub fn is_vikarana(&self) -> bool {
+        matches!(self.morph, Morph::Vikarana(_))
+    }
+
     /// Returns whether the term has the `Vrddha` samjna.
     pub fn is_vrddha(&self) -> bool {
         self.has_tag(Tag::Vrddha)
     }
 
     pub fn is_yan_luk(&self) -> bool {
-        self.has_u("yaN") && self.is_lupta()
+        self.morph == Morph::Sanadi(Sanadi::yaN) && self.is_lupta()
     }
 
     /// Returns whether the term is apṛkta.
@@ -654,8 +815,7 @@ impl Term {
 
     /// Returns whether the term is the it-Agama.
     pub fn is_it_agama(&self) -> bool {
-        // We must check `is_agama` specifically so that we can exclude the tiN-pratyaya "iw".
-        self.is_agama() && self.has_u("iw")
+        self.morph == Morph::Agama(Agama::iw)
     }
 
     // Mutators
@@ -665,11 +825,8 @@ impl Term {
 
     /// Replaces the term's first sound with the given value.
     pub fn set_adi(&mut self, s: &str) {
-        if self.is_empty() {
-            self.text.push_str(s);
-        } else {
-            self.text.replace_range(..=0, s);
-        }
+        assert!(!self.text.is_empty());
+        self.text.replace_range(..=0, s);
     }
 
     /// Replaces the term's last sound with the given value.
@@ -688,21 +845,56 @@ impl Term {
         }
     }
 
-    pub fn set_last_vowel(&mut self, s: &str) {
+    pub fn set_adi_char(&mut self, sub: char) {
+        let mut buf: [u8; 4] = [0; 4];
+        let sub_str: &str = sub.encode_utf8(&mut buf);
+        self.text.replace_range(0..1, sub_str);
+    }
+
+    pub fn set_antya_char(&mut self, c: char) {
+        if self.text.pop().is_some() {
+            self.text.push(c)
+        }
+    }
+
+    pub fn set_upadha_char(&mut self, c: char) {
+        if let Some(a) = self.text.pop() {
+            self.text.pop();
+            self.text.push(c);
+            self.text.push(a);
+        }
+    }
+
+    /// Removes the term's last sound.
+    pub fn antya_lopa(&mut self) {
+        self.text.pop();
+    }
+
+    /// Removes the term's last sound.
+    pub fn upadha_lopa(&mut self) {
+        if let Some(c) = self.text.pop() {
+            self.text.pop();
+            self.text.push(c);
+        }
+    }
+
+    pub fn mutate_last_vowel(&mut self, func: impl Fn(char) -> char) {
         let result = self
             .text
             .bytes()
             .enumerate()
             .rev()
-            .filter(|(_, c)| sounds::is_ac(*c as char))
-            .next();
-        if let Some((i, _)) = result {
-            self.set_at(i, s);
+            .find(|(_, c)| sounds::is_ac(*c as char));
+        if let Some((i, c)) = result {
+            let mut buf: [u8; 4] = [0; 4];
+            let sub = func(c as char);
+            let sub_str: &str = sub.encode_utf8(&mut buf);
+            self.set_at(i, sub_str);
         }
     }
-
     /// Replaces the character at index `i` with the given value.
     pub fn set_at(&mut self, i: usize, s: &str) {
+        debug_assert!(i < self.text.len());
         self.text.replace_range(i..=i, s);
     }
 
@@ -743,14 +935,12 @@ impl Term {
         } else if self.text.contains('x') {
             // Don't save asiddha sounds.
             return;
-        } else {
-            let sthanivat_antya = self.sthanivat.chars().rev().next().expect("ok");
-            let text_antya = self.text.chars().rev().next().expect("ok");
-            if sounds::is_ac(sthanivat_antya) {
-                if text_antya == 'y' || text_antya == 'v' {
-                    // Don't save changes to the final vowel.
-                    return;
-                }
+        } else if !self.sthanivat.is_empty() {
+            let sthanivat_antya = self.sthanivat.chars().next_back().expect("ok");
+            let text_antya = self.text.chars().next_back().expect("ok");
+            if sounds::is_ac(sthanivat_antya) && matches!(text_antya, 'y' | 'v') {
+                // Don't save changes to the final vowel.
+                return;
             }
             // Default case.
             self.sthanivat.replace_range(.., &self.text);
@@ -759,12 +949,6 @@ impl Term {
 
     pub fn force_save_sthanivat(&mut self) {
         self.sthanivat.replace_range(.., &self.text);
-    }
-
-    pub fn save_lakshana(&mut self) {
-        if let Some(u) = &self.u {
-            self.lakshanas.push(TermString::from(u));
-        }
     }
 
     /// Adds the given tag to the term's metadata.
@@ -789,5 +973,192 @@ impl Term {
         for t in tags {
             self.tags.remove(*t);
         }
+    }
+}
+
+impl From<Agama> for Term {
+    fn from(val: Agama) -> Self {
+        let mut t = Term::make_text(val.aupadeshika());
+        t.morph = Morph::Agama(val);
+        t
+    }
+}
+
+impl From<Lakara> for Term {
+    fn from(val: Lakara) -> Term {
+        let mut t = Term::make_text(val.aupadeshika());
+        t.lakara = Some(val);
+        t.add_tag(Tag::Pratyaya);
+        t
+    }
+}
+
+impl From<Sanadi> for Term {
+    fn from(val: Sanadi) -> Self {
+        let mut t = Term::make_text(val.as_str());
+        t.morph = Morph::Sanadi(val);
+        t.add_tag(Tag::Pratyaya);
+        t
+    }
+}
+
+impl From<Stri> for Term {
+    fn from(val: Stri) -> Self {
+        let mut t = Term::make_text(val.as_str());
+        t.morph = Morph::Stri(val);
+        t.add_tags(&[Tag::Pratyaya, Tag::Nyap, Tag::Stri]);
+        t
+    }
+}
+
+impl From<Sup> for Term {
+    fn from(val: Sup) -> Self {
+        let mut t = Term::make_text(val.as_str());
+        t.morph = Morph::Sup(val);
+        t.add_tags(&[Tag::Pratyaya, Tag::Vibhakti, Tag::Sup]);
+        t
+    }
+}
+
+impl From<Taddhita> for Term {
+    fn from(val: Taddhita) -> Term {
+        let mut t = Term::make_text(val.as_str());
+        t.morph = Morph::Taddhita(val);
+        // `Pratyaya` by 3.1.1.
+        // `Taddhita` by 4.1.76.
+        t.add_tags(&[Tag::Pratyaya, Tag::Taddhita]);
+
+        if val.is_vibhakti() {
+            t.add_tag(Tag::Vibhakti);
+        }
+        t
+    }
+}
+
+impl From<Unadi> for Term {
+    fn from(val: Unadi) -> Self {
+        let mut t = Term::make_text(val.as_str());
+        t.morph = Morph::Unadi(val);
+        t.add_tags(&[Tag::Pratyaya, Tag::Krt]);
+        t
+    }
+}
+
+impl From<Upasarga> for Term {
+    fn from(val: Upasarga) -> Term {
+        let mut t = Term::make_text(val.aupadeshika());
+        t.morph = Morph::Upasarga(val);
+        t
+    }
+}
+
+impl From<Vikarana> for Term {
+    fn from(val: Vikarana) -> Term {
+        let mut t = Term::make_text(val.aupadeshika());
+        t.morph = Morph::Vikarana(val);
+        t.add_tag(Tag::Pratyaya);
+        t
+    }
+}
+
+impl From<Agama> for Morph {
+    fn from(val: Agama) -> Self {
+        Morph::Agama(val)
+    }
+}
+
+impl From<Krt> for Morph {
+    fn from(val: Krt) -> Self {
+        Morph::Krt(val)
+    }
+}
+
+impl From<Sanadi> for Morph {
+    fn from(val: Sanadi) -> Self {
+        Morph::Sanadi(val)
+    }
+}
+
+impl From<Stri> for Morph {
+    fn from(val: Stri) -> Self {
+        Morph::Stri(val)
+    }
+}
+
+impl From<Sup> for Morph {
+    fn from(val: Sup) -> Self {
+        Morph::Sup(val)
+    }
+}
+
+impl From<Taddhita> for Morph {
+    fn from(val: Taddhita) -> Self {
+        Morph::Taddhita(val)
+    }
+}
+
+impl From<Tin> for Morph {
+    fn from(val: Tin) -> Self {
+        Morph::Tin(val)
+    }
+}
+
+impl From<Unadi> for Morph {
+    fn from(val: Unadi) -> Self {
+        Morph::Unadi(val)
+    }
+}
+
+impl From<Upasarga> for Morph {
+    fn from(val: Upasarga) -> Self {
+        Morph::Upasarga(val)
+    }
+}
+
+impl From<Vikarana> for Morph {
+    fn from(val: Vikarana) -> Self {
+        Morph::Vikarana(val)
+    }
+}
+
+pub(crate) trait Strings {
+    fn as_strings(&self) -> &[&str];
+}
+
+impl Strings for GanapathaEntry {
+    fn as_strings(&self) -> &[&str] {
+        self.items()
+    }
+}
+
+impl Strings for &[&str] {
+    fn as_strings(&self) -> &[&str] {
+        self
+    }
+}
+
+impl<const N: usize> Strings for &[&str; N] {
+    fn as_strings(&self) -> &[&str] {
+        *self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_is_samyogadi() {
+        assert!(Term::make_text("krI").is_samyogadi());
+        assert!(!Term::make_text("kf").is_samyogadi());
+        assert!(!Term::make_text("IS").is_samyogadi());
+    }
+
+    #[test]
+    fn test_is_samyoganta() {
+        assert!(Term::make_text("praC").is_samyoganta());
+        assert!(Term::make_text("vind").is_samyoganta());
+        assert!(!Term::make_text("kf").is_samyoganta());
+        assert!(!Term::make_text("BU").is_samyoganta());
     }
 }

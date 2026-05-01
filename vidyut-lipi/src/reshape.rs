@@ -24,6 +24,7 @@
 
 use crate::scheme::Scheme;
 use crate::unicode_norm;
+use core::str::Chars;
 
 const BENGALI_LETTER_YA: char = '\u{09af}';
 
@@ -37,6 +38,9 @@ const BENGALI_VIRAMA: char = '\u{09cd}';
 
 /// Used instead of space (' ') in Bhaiksuki.
 const BHAIKSUKI_WORD_SEPARATOR: char = '\u{11c43}';
+
+/// Used to mark pluta in Grantha.
+const GRANTHA_SIGN_PLUTA: char = '\u{1135d}';
 
 /// Javanese virama.
 const JAVANESE_PANGKON: char = '\u{a9c0}';
@@ -76,11 +80,14 @@ const MYANMAR_SIGN_VIRAMA: char = '\u{1039}';
 
 const MYANMAR_SIGN_ASAT: char = '\u{103a}';
 
-// Tai Tham virama.
+/// Tai Tham virama.
 const TAI_THAM_SIGN_RA_HAAM: char = '\u{1a7a}';
 
-// Tai Tham combiner.
+/// Tai Tham combiner.
 const TAI_THAM_SIGN_SAKOT: char = '\u{1a60}';
+
+/// Tamil digit 3 (also used in Grantha)
+const TAMIL_DIGIT_THREE: char = '\u{0be9}';
 
 /// Used instead of space (' ') in Tibetan
 const TIBETAN_MARK_INTERSYLLABLIC_TSHEG: char = '\u{0f0b}';
@@ -103,6 +110,29 @@ const ZANABAZAR_SQUARE_SUBJOINER: char = '\u{11a47}';
 
 fn is_svara(c: char) -> bool {
     matches!(c, '\u{0951}' | '\u{0952}' | '\u{1cda}')
+}
+
+fn is_bengali_sound(c: char) -> bool {
+    match c {
+        // Signs, vowels, consonants
+        '\u{0981}'..='\u{09bc}' => true,
+        // Dependent vowels
+        '\u{09be}'..='\u{09cc}' => true,
+        // Other consonants and signs
+        '\u{09ce}'..='\u{09e3}' => true,
+        // Assamese
+        '\u{09f0}'..='\u{09f1}' => true,
+        _ => false,
+    }
+}
+
+fn accepts_grantha_pluta_marker(c: char) -> bool {
+    // Independent vowels, consonants
+    ('\u{11305}'..='\u{11339}').contains(&c)
+        // Dependent vowel signs
+        || ('\u{1133e}'..='\u{1134c}').contains(&c)
+        // R, RR, L, LL
+        || ('\u{11360}'..='\u{11363}').contains(&c)
 }
 
 fn is_grantha_svara(c: char) -> bool {
@@ -407,28 +437,37 @@ fn is_zanabazar_square_consonant(c: char) -> bool {
 ///
 /// - Most of our changes are simple enough that we don't need the full power of a standard regex
 ///   engine. A simpler solution works just as well while providing better readability.
-struct Matcher<'a> {
+struct Matcher {
     /// The input text to reshap.
-    text: &'a str,
+    text: String,
     /// Byte offset within `text`. This points to the next character to consider.
     i: usize,
+    /// Byte offset when using `push_next`. We use this so that we can push spans.
+    prev: usize,
     /// The output buffer.
     buf: String,
 }
 
-impl<'a> Matcher<'a> {
+impl Matcher {
     /// Creates a new `Matcher`.
-    fn new(text: &'a str) -> Self {
+    fn new(text: String) -> Self {
         Self {
             text,
             i: 0,
+            prev: 0,
             buf: String::new(),
         }
     }
 
     /// Returns the final output buffer.
-    fn finish(self) -> String {
-        self.buf
+    fn finish(mut self) -> String {
+        if !self.buf.is_empty() {
+            self.flush();
+            self.buf
+        } else {
+            // Nothing matched, so return the original text.
+            self.text
+        }
     }
 
     /// Returns whether there is still content remaining in the input string.
@@ -439,6 +478,11 @@ impl<'a> Matcher<'a> {
     /// Returns the active slice.
     fn slice(&self) -> &str {
         &self.text[self.i..]
+    }
+
+    /// Returns the active slice.
+    fn chars(&self) -> Chars<'_> {
+        self.text[self.i..].chars()
     }
 
     /// Returns whether the next character matches the given `filter`.
@@ -469,34 +513,60 @@ impl<'a> Matcher<'a> {
 
     /// Consumes the next character then uses `func` to append to the buffer.
     fn take_1(&mut self, func: impl Fn(&mut String, char)) {
+        self.flush();
         let mut chars = self.slice().chars();
         if let Some(x) = chars.next() {
             func(&mut self.buf, x);
             self.i += x.len_utf8();
+            self.prev = self.i;
         }
     }
 
     /// Consumes the next 2 characters then uses `func` to append to the buffer.
     fn take_2(&mut self, func: impl Fn(&mut String, char, char)) {
+        self.flush();
         let mut chars = self.slice().chars();
         if let (Some(x), Some(y)) = (chars.next(), chars.next()) {
             func(&mut self.buf, x, y);
             self.i += x.len_utf8() + y.len_utf8();
+            self.prev = self.i;
         }
     }
 
     /// Consumes the next 3 characters then uses `func` to append to the buffer.
     fn take_3(&mut self, func: impl Fn(&mut String, char, char, char)) {
+        self.flush();
         let mut chars = self.slice().chars();
         if let (Some(x), Some(y), Some(z)) = (chars.next(), chars.next(), chars.next()) {
             func(&mut self.buf, x, y, z);
             self.i += x.len_utf8() + y.len_utf8() + z.len_utf8();
+            self.prev = self.i;
+        }
+    }
+
+    fn flush(&mut self) {
+        if self.prev < self.i {
+            self.buf += &self.text[self.prev..self.i];
+            self.prev = self.i;
         }
     }
 
     /// Consumes the next char and adds it immediately to the buffer.
     fn push_next(&mut self) {
-        self.take_1(|buf, x| buf.push(x));
+        if let Some(c) = self.slice().chars().next() {
+            self.i += c.len_utf8();
+        }
+    }
+
+    fn swap(&mut self, old: &[char], new: &[char]) {
+        self.flush();
+        self.buf.extend(new);
+        self.i += old.iter().map(|c| c.len_utf8()).sum::<usize>();
+        self.prev = self.i;
+    }
+
+    fn add(&mut self, c: char) {
+        self.i += c.len_utf8();
     }
 }
 
@@ -507,8 +577,8 @@ pub fn reshape_before(input: &str, from: Scheme) -> String {
     // Convert to NFC first to avoid certain transliteration errors.
     // (See `iso_15919_bug_no_greedy_match_on_nfd` for an example of what we want to prevent.)
     let input = unicode_norm::to_nfc(input);
+    let mut m = Matcher::new(input);
 
-    let mut m = Matcher::new(&input);
     match from {
         Scheme::Assamese | Scheme::Bengali => {
             while m.not_empty() {
@@ -550,11 +620,18 @@ pub fn reshape_before(input: &str, from: Scheme) -> String {
             m.finish()
         }
         Scheme::Devanagari | Scheme::Gujarati | Scheme::Kannada | Scheme::Odia | Scheme::Telugu => {
+            // TODO: efficient but not as readable as match/take. Is there a way to make this more
+            // concise?
             while m.not_empty() {
-                if m.match_2(|x, y| is_ayogavaha(x) && is_svara(y)) {
-                    m.take_2(|buf, x, y| buf.extend(&[y, x]));
-                } else {
-                    m.push_next();
+                let mut it = m.chars();
+                if let Some(x) = it.next() {
+                    if is_ayogavaha(x) {
+                        if let Some(y) = it.next().filter(|c| is_svara(*c)) {
+                            m.swap(&[x, y], &[y, x]);
+                            continue;
+                        }
+                    }
+                    m.add(x);
                 }
             }
             m.finish()
@@ -563,6 +640,9 @@ pub fn reshape_before(input: &str, from: Scheme) -> String {
             while m.not_empty() {
                 if m.match_2(|x, y| is_grantha_ayogavaha(x) && is_grantha_svara(y)) {
                     m.take_2(|buf, x, y| buf.extend(&[y, x]));
+                } else if m.match_1(|x| x == GRANTHA_SIGN_PLUTA) {
+                    // Convert back to 3 for other schemes.
+                    m.take_1(|buf, _| buf.extend(&[TAMIL_DIGIT_THREE]));
                 } else {
                     m.push_next();
                 }
@@ -709,6 +789,7 @@ pub fn reshape_before(input: &str, from: Scheme) -> String {
                     // tsheg --> space
                     m.take_1(|buf, _| buf.push(' '))
                 } else if m.match_1(is_tibetan_subjoined_consonant) {
+                    m.flush();
                     // Unwrap to dummy characters for simpler logic below.
                     let w = m.buf.chars().last().unwrap_or('_');
                     let y = m.slice().chars().nth(1).unwrap_or('_');
@@ -740,6 +821,7 @@ pub fn reshape_before(input: &str, from: Scheme) -> String {
         }
         Scheme::ZanabazarSquare => {
             const ZANABAZAR_SQUARE_MARK_TSHEG: char = '\u{11a41}';
+
             while m.not_empty() {
                 if m.match_1(|x| x == ZANABAZAR_SQUARE_MARK_TSHEG) {
                     // tsheg --> space
@@ -753,27 +835,13 @@ pub fn reshape_before(input: &str, from: Scheme) -> String {
             }
             m.finish()
         }
-        _ => input,
-    }
-}
-
-fn is_bengali_sound(c: char) -> bool {
-    match c {
-        // Signs, vowels, consonants
-        '\u{0981}'..='\u{09bc}' => true,
-        // Dependent vowels
-        '\u{09be}'..='\u{09cc}' => true,
-        // Other consonants and signs
-        '\u{09ce}'..='\u{09e3}' => true,
-        // Assamese
-        '\u{09f0}'..='\u{09f1}' => true,
-        _ => false,
+        _ => m.finish(),
     }
 }
 
 /// Reshapes `output` after we run the main transliteration function.
 pub fn reshape_after(output: String, to: Scheme) -> String {
-    let mut m = Matcher::new(&output);
+    let mut m = Matcher::new(output);
 
     match to {
         Scheme::Assamese | Scheme::Bengali => {
@@ -844,7 +912,7 @@ pub fn reshape_after(output: String, to: Scheme) -> String {
 
             // Substitution above blocks substitution here, so split into two Matchers.
             let first = m.finish();
-            let mut m = Matcher::new(&first);
+            let mut m = Matcher::new(first);
             while m.not_empty() {
                 if m.match_2(|x, y| has_cham_final_consonant(x) && y == FAKE_VIRAMA) {
                     m.take_2(|buf, x, _| {
@@ -863,11 +931,18 @@ pub fn reshape_after(output: String, to: Scheme) -> String {
         | Scheme::Malayalam
         | Scheme::Odia
         | Scheme::Telugu => {
+            // TODO: efficient but not as readable as match/take. Is there a way to make this more
+            // concise?
             while m.not_empty() {
-                if m.match_2(|x, y| is_svara(x) && is_ayogavaha(y)) {
-                    m.take_2(|buf, x, y| buf.extend(&[y, x]));
-                } else {
-                    m.push_next();
+                let mut it = m.chars();
+                if let Some(x) = it.next() {
+                    if is_svara(x) {
+                        if let Some(y) = it.next().filter(|c| is_ayogavaha(*c)) {
+                            m.swap(&[x, y], &[y, x]);
+                            continue;
+                        }
+                    }
+                    m.add(x);
                 }
             }
             m.finish()
@@ -876,6 +951,10 @@ pub fn reshape_after(output: String, to: Scheme) -> String {
             while m.not_empty() {
                 if m.match_2(|x, y| is_grantha_svara(x) && is_grantha_ayogavaha(y)) {
                     m.take_2(|buf, x, y| buf.extend(&[y, x]));
+                } else if m
+                    .match_2(|x, y| accepts_grantha_pluta_marker(x) && y == TAMIL_DIGIT_THREE)
+                {
+                    m.take_2(|buf, x, _| buf.extend(&[x, GRANTHA_SIGN_PLUTA]));
                 } else {
                     m.push_next();
                 }
@@ -897,7 +976,6 @@ pub fn reshape_after(output: String, to: Scheme) -> String {
             m.finish()
         }
         Scheme::GunjalaGondi => {
-            println!("Before: {output}");
             const GUNJALA_GONDI_VIRAMA: char = '\u{11d97}';
             while m.not_empty() {
                 if m.match_2(|x, y| x == GUNJALA_GONDI_VIRAMA && !is_gunjala_gondi_consonant(y)) {
@@ -1072,6 +1150,6 @@ pub fn reshape_after(output: String, to: Scheme) -> String {
             }
             m.finish()
         }
-        _ => output,
+        _ => m.finish(),
     }
 }

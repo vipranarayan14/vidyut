@@ -6,30 +6,35 @@ abhyasasya
 Runs rules that modify the abhyāsa.
 */
 
+use std::sync::OnceLock;
+
+use crate::args::Agama as A;
+use crate::args::Agama;
+use crate::args::Aupadeshika;
+use crate::args::Aupadeshika as Au;
 use crate::args::Gana;
+use crate::args::Lakara::*;
+use crate::args::Sanadi as S;
+use crate::args::Vikarana as V;
 use crate::core::operators as op;
 use crate::core::term::TermString;
 use crate::core::Rule::Varttika;
-use crate::core::Tag as T;
 use crate::core::{Prakriya, Rule};
+use crate::core::{PrakriyaTag as PT, Tag as T};
 use crate::dhatu_gana as gana;
 use crate::it_samjna;
 use crate::sounds as al;
-use crate::sounds::{map, s, Map, Set};
-use lazy_static::lazy_static;
+use crate::sounds::{map, s, Map, Set, AC, HAL};
 
-lazy_static! {
-    static ref AA: Set = s("a");
-    static ref AC: Set = s("ac");
-    static ref ANUNASIKA: Set = s("Yam");
-    static ref UU: Set = s("u");
-    static ref SHAR: Set = s("Sar");
-    static ref KHAY: Set = s("Kay");
-    static ref HAL: Set = s("hal");
-    static ref F_HAL: Set = s("f hal");
-    static ref PU_YAN_J: Set = s("pu~ yaR j");
-    static ref KUH_CU: Map = map("ku~ h", "cu~");
-}
+const AA: Set = s(&["a"]);
+const ANUNASIKA: Set = s(&["Yam"]);
+const UU: Set = s(&["u"]);
+const SHAR: Set = s(&["Sar"]);
+const KHAY: Set = s(&["Kay"]);
+const F_HAL: Set = s(&["f hal"]);
+const PU_YAN_J: Set = s(&["pu~", "yaR", "j"]);
+
+static KUH_CU: OnceLock<Map> = OnceLock::new();
 
 /// Simplifies the abhyasa per 7.4.60.
 fn try_haladi(text: &str) -> TermString {
@@ -66,7 +71,7 @@ fn try_shar_purva(text: &str) -> TermString {
 /// Runs rules that remove the abhyAsa of a sannanta (laB -> lipsati).
 fn try_abhyasa_lopa_and_dhatu_change_before_san(p: &mut Prakriya) -> Option<()> {
     let i = p.find_last_where(|t| t.is_abhyasta() && !t.is_empty())?;
-    if i == 0 || !p.has_next_non_empty(i, |t| t.has_u("san")) {
+    if i == 0 || !p.has_next_non_empty(i, |t| t.is_san()) {
         return None;
     }
 
@@ -83,7 +88,7 @@ fn try_abhyasa_lopa_and_dhatu_change_before_san(p: &mut Prakriya) -> Option<()> 
     {
         // mitsati, ripsati, lipsati, Sikzati, pitsati, ...
         let code = "7.4.54";
-        if dhatu.has_upadha(&*AC) {
+        if dhatu.has_upadha(AC) {
             p.run_at(code, i, op::upadha("is"));
         } else {
             p.run_at(code, i, op::antya("is"));
@@ -107,7 +112,7 @@ fn try_abhyasa_lopa_and_dhatu_change_before_san(p: &mut Prakriya) -> Option<()> 
         if !p.optional_run_at("7.4.56.1", i, |t| t.set_at(1, "i")) {
             p.run_at("7.4.56.2", i, |t| t.set_at(1, "I"));
         }
-    } else if dhatu.has_text("muc") && p.has_tag(T::Atmanepada) {
+    } else if dhatu.has_text("muc") && p.has_tag(PT::Atmanepada) {
         // mokzate, mumukzate
         do_abhyasa_lopa = p.optional_run("7.4.57", |p| {
             p.set(i, op::text("moc"));
@@ -127,16 +132,16 @@ fn try_abhyasa_lopa_and_dhatu_change_before_san(p: &mut Prakriya) -> Option<()> 
 
 /// `i` is the index of an abhyasa.
 fn run_for_sani_or_cani_at_index(p: &mut Prakriya, i: usize) -> Option<()> {
-    const SMR_DR: &[&str] = &[
-        "smf",
-        "dF",
-        "YitvarA~\\",
-        "praTa~",
-        "mrada~\\",
-        "stFY",
+    const SMR_DR: &[Aupadeshika] = &[
+        Au::smf,
+        Au::dF,
+        Au::YitvarA,
+        Au::praTa_u,
+        Au::mrada,
+        Au::stFY,
         // TODO: include both spaS dhAtus?
-        "spaSa~^",
-        "spaSa~",
+        Au::spaSa_u,
+        Au::spaSa_s,
     ];
 
     let i_abhyasta = p.find_next_where(i, |t| t.is_abhyasta())?;
@@ -150,16 +155,16 @@ fn run_for_sani_or_cani_at_index(p: &mut Prakriya, i: usize) -> Option<()> {
         .find_next_where(i_abhyasta, |t| t.is_ni_pratyaya())
         .is_some();
     let is_cani = p
-        .find_next_where(i_abhyasta + 1, |t| t.has_u("caN"))
+        .find_next_where(i_abhyasta + 1, |t| t.is(V::caN))
         .is_some();
     let is_laghu_cani = is_ni && is_laghuni && is_cani && !has_at_lopa;
 
-    let is_sanvat = is_laghu_cani || p.find_next_where(i, |t| t.has_u("san")).is_some();
+    let is_sanvat = is_laghu_cani || p.find_next_where(i, |t| t.is_san()).is_some();
     const SRU_ADI: &[&str] = &["sru\\", "Sru\\", "dru\\", "pru\\N", "plu\\N", "cyu\\N"];
 
     let abhyasa = p.get(i)?;
     let dhatu = p.get(i + 1)?;
-    if dhatu.has_u_in(SMR_DR) && is_cani {
+    if dhatu.is_any_u(SMR_DR) && is_cani {
         // asasmarat, adadarat,
         p.run_at("7.4.95", i, op::antya("a"));
     } else {
@@ -167,9 +172,9 @@ fn run_for_sani_or_cani_at_index(p: &mut Prakriya, i: usize) -> Option<()> {
             // Run rules that generally apply to san.
             if abhyasa.has_antya('a') {
                 p.run_at("7.4.79", i, op::antya("i"));
-            } else if abhyasa.has_antya(&*UU) && anga.has_adi(&*PU_YAN_J) && anga.has_at(1, &*AA) {
+            } else if abhyasa.has_antya(UU) && anga.has_adi(PU_YAN_J) && anga.has_at(1, AA) {
                 p.run_at("7.4.80", i, op::antya("i"));
-            } else if anga.has_u_in(SRU_ADI) && p.has(i + 2, |t| !t.has_u("san")) {
+            } else if anga.has_u_in(SRU_ADI) && p.has(i + 2, |t| !t.is_san()) {
                 // Example: sru -> sisrAvayizyati
                 // Note that this rule must run after guna for the upadha check to be meaningful.
                 p.optional_run_at("7.4.81", i, op::antya("i"));
@@ -186,7 +191,7 @@ fn run_for_sani_or_cani_at_index(p: &mut Prakriya, i: usize) -> Option<()> {
             } else if is_laghu_cani {
                 if !dhatu.is_samyogadi() {
                     if let Some(sub) = al::to_dirgha(abhyasa.antya()?) {
-                        p.run_at("7.4.94", i, op::antya(&sub.to_string()));
+                        p.run_at("7.4.94", i, op::antya_char(&sub));
                     }
                 }
             }
@@ -196,9 +201,9 @@ fn run_for_sani_or_cani_at_index(p: &mut Prakriya, i: usize) -> Option<()> {
     let abhyasa = p.get(i)?;
     let anga = p.get(i_abhyasta)?;
     // TODO: scope of this? Sarvadhatuka only?
-    if anga.has_u_in(gana::MAN_BADHA) {
+    if anga.is_any_u(gana::MAN_BADHA) {
         let sub = al::to_dirgha(abhyasa.antya()?)?;
-        p.run_at("3.1.6", i, op::antya(&sub.to_string()));
+        p.run_at("3.1.6", i, op::antya_char(&sub));
     }
 
     Some(())
@@ -210,7 +215,7 @@ fn run_for_sani_or_cani_at_index(p: &mut Prakriya, i: usize) -> Option<()> {
 /// - must follow 7.4.1 etc. which change the dhatu vowel before `caN`.
 /// - must follow guna of the dhatu vowel, which affects 7.4.1 etc. above.
 pub fn run_for_sani_or_cani(p: &mut Prakriya) -> Option<()> {
-    let mut i = p.find_first(T::Abhyasa)?;
+    let mut i = p.find_first_with_tag(T::Abhyasa)?;
     loop {
         run_for_sani_or_cani_at_index(p, i);
         i = p.find_next_where(i, |t| t.is_abhyasa())?;
@@ -239,56 +244,77 @@ fn try_general_rules(p: &mut Prakriya, i: usize) -> Option<()> {
             // vididyute
             p.run_at("7.4.67", i, op::text("dit"));
         }
-    } else if dhatu.has_text("vyaT") && last.has_lakshana("li~w") {
+    } else if dhatu.has_text("vyaT") && last.has_lakara(Lit) {
         // TODO: move this to `try_rules_for_lit`?
         p.run_at("7.4.68", i, op::text("viT"));
     }
 
-    let abhyasa = p.get(i)?;
-    if abhyasa.has_adi(&*SHAR) && abhyasa.has_at(1, &*KHAY) {
-        let abhyasa = &mut p.get_mut(i)?;
-        let res = try_shar_purva(&abhyasa.text);
-        if res != abhyasa.text {
-            abhyasa.text = res;
-            p.step("7.4.61");
+    let mut abhyasa_has_changed = true;
+    let mut current_abhyasa_text;
+
+    // The transformations prescribed in abhyasa angakarya
+    // seem to be designed to converge on repetition. This may be the
+    // vivakshA
+    while abhyasa_has_changed {
+        let abhyasa = p.get(i)?;
+        current_abhyasa_text = abhyasa.text.clone();
+
+        if abhyasa.has_adi(SHAR) && abhyasa.has_at(1, KHAY) {
+            let abhyasa = p.get_mut(i)?;
+            let res = try_shar_purva(&abhyasa.text);
+            if res != abhyasa.text {
+                abhyasa.text = res;
+                p.step("7.4.61");
+            }
+        } else {
+            let abhyasa = p.get_mut(i)?;
+            let res = try_haladi(&abhyasa.text);
+            if res != abhyasa.text {
+                abhyasa.text = res;
+                p.step("7.4.60");
+            }
         }
-    } else {
-        let abhyasa = &mut p.get_mut(i)?;
-        let res = try_haladi(&abhyasa.text);
-        if res != abhyasa.text {
-            abhyasa.text = res;
-            p.step("7.4.60");
+
+        if p.has(i, |t| t.has_antya('f') || t.has_antya('F')) {
+            p.run_at("7.4.66", i, op::antya("a"));
+            p.run_at("1.1.51", i, op::antya("ar"));
+        }
+
+        // no-hrasva is for pA --> apIpyat.
+        let abhyasa = p.get(i)?;
+        if al::is_dirgha(abhyasa.antya()?) && !abhyasa.has_tag(T::FlagNoHrasva) {
+            let val = al::to_hrasva(abhyasa.antya()?)?;
+            p.run_at("7.4.59", i, op::antya_char(&val));
+        }
+
+        let dhatu = p.get(i_dhatu)?;
+        let last = p.terms().last()?;
+        if dhatu.has_u("i\\R") && last.has_tag(T::kit) && last.has_lakara(Lit) {
+            // IyatuH, IyuH
+            p.run_at("7.4.69", i, op::adi("I"));
+        }
+
+        let abhyasa = p.get_mut(i)?;
+        if abhyasa.text == current_abhyasa_text {
+            abhyasa_has_changed = false;
         }
     }
 
+    // Keeping this outside the loop as this needs to be done only once
+    // after abhyasa has converged.
     let abhyasa = p.get(i)?;
     let dhatu = p.get(i_dhatu)?;
-    if let Some(val) = KUH_CU.get(abhyasa.adi()?) {
+    if let Some(val) = KUH_CU
+        .get_or_init(|| map("ku~ h", "cu~"))
+        .get(abhyasa.adi()?)
+    {
         let n = p.get(i_dhatu + 1)?;
-        if dhatu.has_u("ku\\N") && dhatu.has_gana(Gana::Bhvadi) && n.has_u("yaN") {
+        if dhatu.has_u("ku\\N") && dhatu.has_gana(Gana::Bhvadi) && n.is(S::yaN) {
             p.step("7.4.63");
         } else {
-            p.run_at("7.4.62", i, op::adi(&val.to_string()));
+            p.run_at("7.4.62", i, |t| t.set_adi_char(val));
         }
     }
-
-    let abhyasa = p.get(i)?;
-    if al::is_dirgha(abhyasa.antya()?) {
-        let val = al::to_hrasva(abhyasa.antya()?)?;
-        p.run_at("7.4.59", i, op::antya(&val.to_string()));
-    }
-
-    if p.has(i, |t| t.has_antya('f')) {
-        p.run_at("7.4.66", i, op::antya("a"));
-    }
-
-    let dhatu = p.get(i_dhatu)?;
-    let last = p.terms().last()?;
-    if dhatu.has_u("i\\R") && last.has_tag(T::kit) && last.has_lakshana("li~w") {
-        // IyatuH, IyuH
-        p.run_at("7.4.69", i, op::adi("I"));
-    }
-
     Some(())
 }
 
@@ -305,13 +331,14 @@ fn try_rules_for_lit(p: &mut Prakriya, i: usize) -> Option<()> {
 
     let abhyasa = p.get(i)?;
     let dhatu = p.get(i_dhatu)?;
-    let last = p.terms().last()?;
+    let i_n = p.find_next_where(i_dhatu, |t| t.is_pratyaya())?;
+    let next = p.get(i_n)?;
 
     fn add_nut_agama(rule: impl Into<Rule>, p: &mut Prakriya, i: usize) {
-        op::insert_agama_at(rule.into(), p, i, "nu~w");
+        op::insert_before(rule.into(), p, i, A::nuw);
     }
 
-    if !last.has_lakshana("li~w") {
+    if !next.has_lakara(Lit) {
         return None;
     }
 
@@ -324,10 +351,10 @@ fn try_rules_for_lit(p: &mut Prakriya, i: usize) -> Option<()> {
         //     'ṅgasya nuḍāgamo bhavati. ānṛdhatuḥ, ānṛdhuḥ.
         //
         let dhatu = p.get(i_dhatu)?;
-        if dhatu.has_antya(&*HAL) && dhatu.has_upadha(&*F_HAL) {
+        if dhatu.has_antya(HAL) && dhatu.has_upadha(F_HAL) {
             // 'A' acepted only by some grammarians
             if dhatu.has_adi('A') {
-                p.optionally(Rule::Kashika("7.4.71.k"), |rule, p| {
+                p.optionally(Rule::Kashika("7.4.71"), |rule, p| {
                     add_nut_agama(rule, p, i_dhatu);
                 });
             } else {
@@ -360,7 +387,7 @@ fn try_rules_for_lit(p: &mut Prakriya, i: usize) -> Option<()> {
 ///
 /// (7.4.75 - 7.4.77)
 fn try_rules_for_slu(p: &mut Prakriya, i: usize) -> Option<()> {
-    p.find_last(T::Slu)?;
+    p.find_last_with_tag(T::Slu)?;
 
     let i_dhatu = i + 1;
     let abhyasa = p.get(i)?;
@@ -389,7 +416,7 @@ fn try_rules_for_slu(p: &mut Prakriya, i: usize) -> Option<()> {
 
 /// Runs rules that modify the abhyAsa for yaNanta dhAtus.
 fn try_rules_for_yan(p: &mut Prakriya, i_abhyasa: usize) -> Option<()> {
-    let i_yan = p.find_last_where(|t| t.has_u("yaN"))?;
+    let i_yan = p.find_last_where(|t| t.is(S::yaN))?;
 
     let i_dhatu = i_abhyasa + 1;
     let abhyasa = p.get(i_abhyasa)?;
@@ -404,8 +431,8 @@ fn try_rules_for_yan(p: &mut Prakriya, i_abhyasa: usize) -> Option<()> {
         p.run_at("7.4.82", i_abhyasa, op::antya(sub));
     }
 
-    let optional_add_agama = |rule, p: &mut Prakriya, i_dhatu, agama| -> bool {
-        let added = p.optional_run(rule, |p| op::insert_agama_before(p, i_dhatu, agama));
+    let optional_add_agama = |rule, p: &mut Prakriya, i_dhatu, agama: Agama| -> bool {
+        let added = p.optional_run(rule, |p| p.insert(i_dhatu, agama));
         if added {
             it_samjna::run(p, i_dhatu).ok();
         }
@@ -413,7 +440,7 @@ fn try_rules_for_yan(p: &mut Prakriya, i_abhyasa: usize) -> Option<()> {
     };
 
     let add_agama = |rule, p: &mut Prakriya, i_dhatu, agama| -> bool {
-        p.run(rule, |p| op::insert_agama_before(p, i_dhatu, agama));
+        p.run(rule, |p| p.insert(i_dhatu, agama));
         it_samjna::run(p, i_dhatu).ok();
         true
     };
@@ -436,12 +463,12 @@ fn try_rules_for_yan(p: &mut Prakriya, i_abhyasa: usize) -> Option<()> {
     ];
 
     if dhatu.has_u_in(VANCU_SRANSU) {
-        op::insert_agama_at("7.4.84", p, i_dhatu, "nIk");
-    } else if abhyasa.has_antya('a') && dhatu.has_antya(&*ANUNASIKA) && !dhatu.has_upadha('A') {
+        op::insert_before("7.4.84", p, i_dhatu, A::nIk);
+    } else if abhyasa.has_antya('a') && dhatu.has_antya(ANUNASIKA) && !dhatu.has_upadha('A') {
         // Per commentaries, this rule applies only if the abhyasa ended with "A" before being shortened by 7.4.59. Here, we check for that condition by seeing if the dhatu has an A.
 
         // Should treat as anusvAra per commentaries, otherwise we can't derive yaMyamyate.
-        op::insert_agama_at("7.4.85", p, i_dhatu, "Mu~k");
+        op::insert_before("7.4.85", p, i_dhatu, A::Muk);
     } else if dhatu.has_u_in(JAPA_JABHA) {
         if dhatu.has_u("da\\nSa~") {
             // > daśīti daśa iti daṃśiḥ ayaṃ nakāralopārtham eva nirdiṣṭaḥ। tena yaṅlukyapi
@@ -451,9 +478,9 @@ fn try_rules_for_yan(p: &mut Prakriya, i_abhyasa: usize) -> Option<()> {
             // TODO: not sure where to put this.
             p.set(i_dhatu, |t| t.set_text("daS"));
         }
-        op::insert_agama_at("7.4.86", p, i_dhatu, "nu~k");
+        op::insert_before("7.4.86", p, i_dhatu, A::Muk);
     } else if dhatu.has_u_in(&["cara~", "Pala~", "YiPalA~"]) {
-        op::insert_agama_at("7.4.87", p, i_dhatu, "nu~k");
+        op::insert_before("7.4.87", p, i_dhatu, A::Muk);
 
         // Use `i_dhatu + 1` because 7.4.87 above shifted the index.
         let i_dhatu = i_dhatu + 1;
@@ -471,28 +498,47 @@ fn try_rules_for_yan(p: &mut Prakriya, i_abhyasa: usize) -> Option<()> {
         // (Check for "contains" and not "antya" to allow pfcC, vfSc, ...)
         if is_yan_luk && dhatu.has_antya('f') {
             // carkarti, carikarti, carIkarti, ...
-            _ = optional_add_agama("7.4.92:ruk", p, i_dhatu, "ru~k")
-                || optional_add_agama("7.4.92:rik", p, i_dhatu, "rik")
-                || add_agama("7.4.92:rIk", p, i_dhatu, "rIk");
+            _ = optional_add_agama("7.4.92:ruk", p, i_dhatu, A::ruk)
+                || optional_add_agama("7.4.92:rik", p, i_dhatu, A::rik)
+                || add_agama("7.4.92:rIk", p, i_dhatu, A::rIk);
+            // The rik agamas are considered part of the abhyasa. Apply the
+            // abhyasa samjna and mark them as "complete" for processing
+            // Todo(tbdasap)": Explore an "op" to sandhi-fy the two "abhyasa" terms into one
+            // The observed cases are due to the only अजादि ऋकारान्त dhatu -> "f//" in the
+            // entire dhatupAtha that trigger some corner cases
+            // 1. "f//" + yanLuk + Lat + Ji  evaluates as
+            //    "ar" + "r" evaluates to "Ar" (8.3.14, 6.3.111)  --> "Arati" ✅
+            //    "a" + "r" + "r" evaluates to "ar" (only 8.3.14) --> "arati" ❌
+            // 2. "f//" + yanLuk + Lat + Tip   (अरियरीति अरियर्ति)
+            //    6.4.78 processing is currently triggered by adding the tags below
+            // 3. For "कृ" etc. one gets च + री + कृ and since it is हलादि
+            //    इयङ् from 6.4.78 does not apply but there seems to be no side-effect
+            //    to marking ri/rI as an additional "abhyasa" term in the prakriya so far.
+            p.get_mut(i_abhyasa + 1)?
+                .add_tags(&[T::Abhyasa, T::Complete]);
         } else {
             let mut added = false;
             // narnarti, narinarti
             if is_yan_luk {
-                added = optional_add_agama("7.4.91:ruk", p, i_dhatu, "ru~k")
-                    || optional_add_agama("7.4.91:rik", p, i_dhatu, "rik");
+                added = optional_add_agama("7.4.91:ruk", p, i_dhatu, A::ruk)
+                    || optional_add_agama("7.4.91:rik", p, i_dhatu, A::rik);
             }
             if !added {
                 let dhatu = p.get(i_dhatu)?;
                 if dhatu.has_upadha('f') {
                     // varIvftyate, varIvftIti, ...
-                    op::insert_agama_at("7.4.90", p, i_dhatu, "rIk");
+                    op::insert_before("7.4.90", p, i_dhatu, A::rIk);
                 } else {
-                    op::insert_agama_at(Varttika("7.4.90.1"), p, i_dhatu, "rIk");
+                    op::insert_before(Varttika("7.4.90.1"), p, i_dhatu, A::rIk);
                 }
             }
         }
     } else if abhyasa.has_antya('a') {
         p.run_at("7.4.83", i_abhyasa, op::antya("A"));
+    }
+
+    if p.has(i_abhyasa + 1, |t| t.is(A::Muk)) {
+        p.run_at(Varttika("7.4.85.1"), i_abhyasa + 1, |t| t.add_tag(T::Pada));
     }
 
     Some(())

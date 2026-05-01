@@ -1,4 +1,34 @@
-use crate::args::{Krdanta, Samasa, Taddhitanta};
+use crate::args::{Krdanta, Samasa, Slp1String, Taddhitanta};
+use crate::core::errors::{Error, Result};
+
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
+
+/// Models a basic *prātipadika* that is not created with any other *pratyaya*s.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct BasicPratipadika {
+    pub(crate) text: Slp1String,
+    pub(crate) is_avyaya: bool,
+    pub(crate) is_nyap: bool,
+}
+
+impl BasicPratipadika {
+    /// Returns the text that constitutes this pratipadika.
+    pub fn text(&self) -> &str {
+        &self.text.0
+    }
+
+    /// Returns whether this pratipadika is an *avyaya*.
+    pub fn is_avyaya(&self) -> bool {
+        self.is_avyaya
+    }
+
+    /// Returns whether this pratipadika should be treated as ending in a *nyAp pratyaya*.
+    pub fn is_nyap(&self) -> bool {
+        self.is_nyap
+    }
+}
 
 /// A nominal stem.
 ///
@@ -9,31 +39,24 @@ use crate::args::{Krdanta, Samasa, Taddhitanta};
 ///
 /// A pratipadika is the base to which we add sup-pratyayas. Through this process, we create
 /// subantas (nominals), which are complete words.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum Pratipadika {
     /// A simple string that receives the pratipadika-samjna by rule 1.2.45.
     Basic(BasicPratipadika),
     /// A krdanta.
     Krdanta(Box<Krdanta>),
-    /// A taddhitanta.
+    /// A *taddhitānta*.
     Taddhitanta(Box<Taddhitanta>),
-    /// A samasa.
+    /// A *samāsa*.
     Samasa(Box<Samasa>),
-}
-
-/// Models a basic pratipadika.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub struct BasicPratipadika {
-    pub(crate) text: String,
-    pub(crate) is_avyaya: bool,
-    pub(crate) is_nyap: bool,
 }
 
 impl Pratipadika {
     /// (unstable) A simple constructor for `Pratipadika::Basic`.
-    pub fn basic(text: impl AsRef<str>) -> Self {
+    pub fn basic(text: Slp1String) -> Self {
         Self::Basic(BasicPratipadika {
-            text: text.as_ref().to_string(),
+            text,
             is_nyap: false,
             is_avyaya: false,
         })
@@ -41,9 +64,9 @@ impl Pratipadika {
 
     /// (unstable) A simple constructor for `Pratipadika::Basic` that marks the pratipadika as an
     /// avyaya.
-    pub fn avyaya(text: impl AsRef<str>) -> Self {
+    pub fn avyaya(text: Slp1String) -> Self {
         Self::Basic(BasicPratipadika {
-            text: text.as_ref().to_string(),
+            text,
             is_nyap: false,
             is_avyaya: true,
         })
@@ -51,24 +74,55 @@ impl Pratipadika {
 
     /// (unstable) A simple constructor for `Pratipadika::Basic` that indicates that the
     /// pratipadika already ends in a nyAp-pratyaya.
-    pub fn nyap(text: impl AsRef<str>) -> Self {
+    pub fn nyap(text: Slp1String) -> Self {
         Self::Basic(BasicPratipadika {
-            text: text.as_ref().to_string(),
+            text,
             is_nyap: true,
             is_avyaya: false,
         })
     }
+
+    /// Returns whether the pratipadika describes an avyaya.
+    pub fn is_avyaya(&self) -> bool {
+        match self {
+            Self::Basic(b) => b.is_avyaya(),
+            Self::Krdanta(k) => k.krt().is_avyaya(),
+            _ => false,
+        }
+    }
+
+    /// Returns whether the pratipadika describes an avyaya.
+    pub fn is_nyap(&self) -> bool {
+        match self {
+            Self::Basic(b) => b.is_nyap(),
+            Self::Krdanta(_) => false,
+            _ => false,
+        }
+    }
 }
 
-impl From<&str> for Pratipadika {
-    fn from(s: &str) -> Self {
-        Self::basic(s.to_string())
+impl TryFrom<&str> for Pratipadika {
+    type Error = Error;
+    fn try_from(s: &str) -> Result<Self> {
+        Ok(Self::basic(Slp1String::from(s)?))
     }
 }
 
 impl From<&Pratipadika> for Pratipadika {
     fn from(p: &Pratipadika) -> Self {
         p.clone()
+    }
+}
+
+impl From<BasicPratipadika> for Pratipadika {
+    fn from(b: BasicPratipadika) -> Self {
+        Self::Basic(b)
+    }
+}
+
+impl From<&BasicPratipadika> for Pratipadika {
+    fn from(b: &BasicPratipadika) -> Self {
+        Self::Basic(b.clone())
     }
 }
 

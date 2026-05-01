@@ -1,8 +1,9 @@
 #![doc = include_str!("../README.md")]
 #![deny(missing_docs)]
 #![deny(clippy::unwrap_used)]
+#![deny(unsafe_code)]
 
-pub use crate::core::{Error, Prakriya, Rule, RuleChoice, Step};
+pub use crate::core::{Decision, Error, Prakriya, Rule, RuleChoice, Step};
 pub use crate::dhatupatha::Dhatupatha;
 pub use crate::vyakarana::{Vyakarana, VyakaranaBuilder};
 
@@ -10,24 +11,19 @@ pub use crate::vyakarana::{Vyakarana, VyakaranaBuilder};
 // - `args` defines the API contract.
 // - `dhatupatha` defines convenience functions for reading our version of the Dhatupatha.
 //   These functions are used only in our binaries (in `src/bin`).
-// - `private` contains convenience functions for the code in `src/bin`.
+// - `ganapatha` defines various useful ganas.
 pub mod args;
 pub mod dhatupatha;
-
-mod binary_only;
-#[doc(hidden)]
-pub mod private {
-    // Common code for our binaries. Don't use or depend on this!
-    pub use crate::binary_only::*;
-}
+pub mod ganapatha;
+pub mod morph;
 
 // Data structures and utilities
+mod caching;
 mod core;
 mod sounds;
 
 // Other texts.
 mod ashtadhyayi;
-mod ganapatha;
 mod linganushasanam;
 mod phit_sutraani;
 

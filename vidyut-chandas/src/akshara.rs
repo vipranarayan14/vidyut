@@ -1,13 +1,19 @@
+use crate::enum_boilerplate;
 use crate::sounds;
 
 /// The weight of an akshara.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum Weight {
-    /// A heavy syllable.
+    /// A *guru* or heavy syllable.
     G,
-    /// A light syllable.
+    /// A *laghu* or light syllable.
     L,
 }
+
+enum_boilerplate!(Weight, {
+    G => "G",
+    L => "L",
+});
 
 /// A Sanskrit syllable.
 ///
@@ -18,7 +24,7 @@ pub enum Weight {
 /// - It must not start with an anusvara or visarga.
 ///
 /// Together, these three rurles mean that an input string has exactly one division into aksharas.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct Akshara {
     pub(crate) text: String,
     pub(crate) weight: Weight,
@@ -43,7 +49,7 @@ impl Akshara {
     }
 
     /// The length of this akshara in matras.
-    pub fn num_matras(&self) -> usize {
+    pub fn num_matras(&self) -> i32 {
         match self.weight {
             Weight::L => 1,
             Weight::G => 2,
@@ -55,6 +61,7 @@ impl Akshara {
 ///
 /// Any text that is not a valid Sanskrit sound in SLP1 will be ignored.
 pub fn scan_line(text: impl AsRef<str>) -> Vec<Akshara> {
+    // Split into aksharas.
     let mut akshara_strs = Vec::new();
     let mut cur = String::new();
     for c in text.as_ref().chars() {
@@ -71,6 +78,7 @@ pub fn scan_line(text: impl AsRef<str>) -> Vec<Akshara> {
             if let Some(prev) = akshara_strs.last_mut() {
                 prev.push(c);
             }
+            // `else` means `M` and `H` follow a non-vowel, which indicates an error.
         }
 
         // Skip all other punctuation, spaces, etc.
@@ -85,8 +93,10 @@ pub fn scan_line(text: impl AsRef<str>) -> Vec<Akshara> {
             // Case 2: extend old syllable
             last.push_str(&cur);
         }
+        // `else` means that `text` contains only consonants, which indicates an error.
     }
 
+    // Calculate weights.
     akshara_strs
         .iter()
         .enumerate()
@@ -97,10 +107,12 @@ pub fn scan_line(text: impl AsRef<str>) -> Vec<Akshara> {
                 false
             };
 
-            let weight = if !cur.ends_with(sounds::is_hrasva) || next_is_samyogadi {
-                Weight::G
-            } else {
+            let has_hrasva = cur.chars().any(sounds::is_hrasva);
+            let has_visarga_or_anusvara = matches!(cur.chars().last(), Some('M') | Some('H'));
+            let weight = if has_hrasva && !next_is_samyogadi && !has_visarga_or_anusvara {
                 Weight::L
+            } else {
+                Weight::G
             };
             Akshara::new(cur.to_string(), weight)
         })
@@ -254,15 +266,14 @@ mod tests {
     #[test]
     fn test_scan_block_with_laghu_weight_change() {
         let scan = scan_lines("anIkam".lines());
-        assert_eq!(weights(&scan[0]), vec![L, G, G]);
+        assert_eq!(weights(&scan[0]), vec![L, G, L]);
 
         // Last syllable of `anIkam` becomes guru due to following samyoga.
         let scan = scan_lines("anIkam\nvyUQam".lines());
         assert_eq!(weights(&scan[0]), vec![L, G, G]);
 
         // Last syllable of `anIka` stays laghu due to following vowel.
-        // TODO: this is buggy.
-        // let scan = scan_block("anIkam\neva");
-        // assert_eq!(weights(&scan[0]), vec![L, G, L]);
+        let scan = scan_lines("anIkam\neva".lines());
+        assert_eq!(weights(&scan[0]), vec![L, G, L]);
     }
 }

@@ -1,3 +1,5 @@
+//! Content that should go somewhere else, eventually.
+
 use crate::core::operators as op;
 use crate::core::Prakriya;
 
@@ -13,15 +15,14 @@ const PAD_ADI: &[&str] = &[
 ];
 
 pub fn run_pad_adi(p: &mut Prakriya) -> Option<()> {
+    use crate::args::Sup::*;
+
     let i_prati = p.find_first_where(|t| t.is_pratipadika())?;
     let i_next = i_prati + 1;
     let prati = p.get(i_prati)?;
     let is_shas_prabhrti = p.has(i_next, |t| {
         // HACK: exclude None, which is a placeholder form for upapada-krdantas.
-        t.is_vibhakti()
-            && !t.is_lupta()
-            && !t.has_u_in(&["su~", "O", "jas", "am", "Ow"])
-            && t.u.is_some()
+        t.is_vibhakti() && !t.is_lupta() && !t.is_any_sup(&[su, O, jas, am, Ow])
     });
 
     if is_shas_prabhrti {
@@ -31,4 +32,9 @@ pub fn run_pad_adi(p: &mut Prakriya) -> Option<()> {
     }
 
     Some(())
+}
+
+// Returns whether this dhatu uses sip-vikarana in leT-lakAra.
+pub fn uses_sip_vikarana(p: &mut Prakriya, i: usize) -> bool {
+    p.has(i, |t| t.has_text_in(&["juz", "mand"]) || t.has_u("tF"))
 }

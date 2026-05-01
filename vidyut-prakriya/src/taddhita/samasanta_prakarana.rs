@@ -5,34 +5,31 @@ Implements the taddhita rules in the "samAsAntAH" section of pada 5.4.
 */
 use crate::args::Taddhita;
 use crate::args::Taddhita::*;
+use crate::core::PrakriyaTag as PT;
 use crate::core::Rule::Varttika;
-use crate::core::Tag as T;
 use crate::core::{Prakriya, Rule};
 use crate::ganapatha as gana;
 use crate::it_samjna;
 use crate::sounds::{s, Set};
-use lazy_static::lazy_static;
 
-lazy_static! {
-    static ref CU: Set = s("cu~");
-    static ref JHAY: Set = s("Jay");
-}
+const CU: Set = s(&["cu~"]);
+const JHAY: Set = s(&["Jay"]);
 
 impl Prakriya {
     pub(crate) fn is_bahuvrihi(&self) -> bool {
-        self.has_tag(T::Bahuvrihi)
+        self.has_tag(PT::Bahuvrihi)
     }
 
     pub(crate) fn is_tatpurusha(&self) -> bool {
-        self.has_tag(T::Tatpurusha)
+        self.has_tag(PT::Tatpurusha)
     }
 
     pub(crate) fn is_avyayibhava(&self) -> bool {
-        self.has_tag(T::Avyayibhava)
+        self.has_tag(PT::Avyayibhava)
     }
 
     fn is_samahara_dvandva(&self) -> bool {
-        self.has_tag(T::Dvandva) && self.has_tag(T::Samahara)
+        self.has_tag(PT::Dvandva) && self.has_tag(PT::Samahara)
     }
 }
 
@@ -42,7 +39,7 @@ fn add(rule: impl Into<Rule>, p: &mut Prakriya, taddhita: Taddhita) -> bool {
         .expect("ok");
     let rule = rule.into();
     // Insert after pratipadika but before any subantas
-    p.run(rule, |p| p.insert_after(i_antya, taddhita.to_term()));
+    p.run(rule, |p| p.insert_after(i_antya, taddhita));
     it_samjna::run(p, i_antya + 1).expect("should never fail");
 
     true
@@ -104,7 +101,7 @@ pub fn run(p: &mut Prakriya) -> Option<()> {
         if uttara.ends_with("an") {
             // uparAjam, ...
             add("5.4.108", p, wac);
-        } else if uttara.has_antya(&*JHAY) {
+        } else if uttara.has_antya(JHAY) {
             // upasamiDa, upasamit, ...
             optional_add("5.4.111", p, wac);
         } else if uttara.has_text("giri") {
@@ -166,7 +163,7 @@ pub fn run(p: &mut Prakriya) -> Option<()> {
         } else if purva.has_text_in(&["su", "dur", "dus"]) && uttara.has_text("hfdaya") {
             // suhfd, durhfd
             p.optional_run_at("5.4.150", i_uttara, |t| t.set_text("hfd"));
-        } else if uttara.has_text_in(gana::URAH_PRABHRTI) && uttara.is_ekavacana() {
+        } else if uttara.has_text_in(gana::URAHPRABHRTAYAH) && uttara.is_ekavacana() {
             // vyUQoraska, ...
             add("5.4.151", p, kap);
         }

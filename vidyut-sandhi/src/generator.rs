@@ -3,8 +3,9 @@ Utilities for generating sandhi rules.
 
 For details, see the `create_rules` function below.
 */
+use std::sync::OnceLock;
+
 use crate::sounds::Set;
-use lazy_static::lazy_static;
 
 /// All vowels.
 const AC: &str = "aAiIuUfFxXeEoO";
@@ -19,7 +20,7 @@ const HAL: &str = "kKgGNcCjJYwWqQRtTdDnpPbBmyrlvSzsh";
 /// - the first part is `a`
 /// - the second part is `i`
 /// - the result is `e`.
-#[derive(Debug)]
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct Rule {
     first: String,
     second: String,
@@ -28,15 +29,15 @@ pub struct Rule {
 
 impl Rule {
     /// Returns the first part of the rule.
-    pub fn first(&self) -> &String {
+    pub fn first(&self) -> &str {
         &self.first
     }
     /// Returns the second part of the rule.
-    pub fn second(&self) -> &String {
+    pub fn second(&self) -> &str {
         &self.second
     }
     /// Returns the result of the rule.
-    pub fn result(&self) -> &String {
+    pub fn result(&self) -> &str {
         &self.result
     }
 }
@@ -63,18 +64,16 @@ fn is_savarna_ac(f: char, s: char) -> bool {
 
 /// Returns whether the given sound is voiced.
 fn is_ghoshavat(c: char) -> bool {
-    lazy_static! {
-        static ref S: Set = Set::from(r"aAiIuUfFxXeEoOgGNjJYqQRdDnbBmyrlvh");
-    }
-    S.contains(c)
+    static S: OnceLock<Set> = OnceLock::new();
+    S.get_or_init(|| Set::from(r"aAiIuUfFxXeEoOgGNjJYqQRdDnbBmyrlvh"));
+    S.get().unwrap().contains(c)
 }
 
 /// Returns whether the given sound is nasal.
 fn is_anunasika(c: char) -> bool {
-    lazy_static! {
-        static ref S: Set = Set::from(r"NYRnm");
-    }
-    S.contains(c)
+    static S: OnceLock<Set> = OnceLock::new();
+    S.get_or_init(|| Set::from(r"NYRnm"));
+    S.get().unwrap().contains(c)
 }
 
 /// Returns the lengthened form of a vowel.

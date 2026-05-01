@@ -1,29 +1,46 @@
-/*!
-Utility functions for working with the Dhatupatha file included in this crate. For details, see the
-comments on the `Dhatupatha` struct.
-*/
+//! Utility functions for working with the Dhatupatha file included in this crate.
+//! For details, see the comments on the `Dhatupatha` struct.
 
 use crate::args::{Antargana, Dhatu, Gana};
 use crate::core::errors::*;
 use std::path::Path;
 
 /// An entry in the Dhatupatha.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct Entry {
     code: String,
     dhatu: Dhatu,
     artha: String,
 }
 
+/// A quick code -> `Gana` parser for numeric codes in dhatupatha.tsv
+fn numeric_to_gana(s: &str) -> Result<Gana> {
+    let ret = match s {
+        "1" => Gana::Bhvadi,
+        "2" => Gana::Adadi,
+        "3" => Gana::Juhotyadi,
+        "4" => Gana::Divadi,
+        "5" => Gana::Svadi,
+        "6" => Gana::Tudadi,
+        "7" => Gana::Rudhadi,
+        "8" => Gana::Tanadi,
+        "9" => Gana::Kryadi,
+        "10" => Gana::Curadi,
+        _ => return Err(Error::ParseError(s.to_string())),
+    };
+    Ok(ret)
+}
+
 impl Entry {
-    fn parse(code: &str, upadesha: &str, artha: &str) -> Result<Self> {
+    fn parse(code: &str, aupadeshika: &str, artha: &str) -> Result<Self> {
         let (gana, number) = code.split_once('.').ok_or(Error::InvalidFile)?;
         let gana = if let Some(stripped) = gana.strip_prefix('0') {
-            stripped.parse()?
+            numeric_to_gana(stripped)?
         } else {
-            gana.parse()?
+            numeric_to_gana(gana)?
         };
         let number = number.parse()?;
-        let dhatu = create_dhatu(upadesha, gana, number)?;
+        let dhatu = create_dhatu(aupadeshika, gana, number)?;
 
         Ok(Self {
             code: code.to_string(),
@@ -33,7 +50,7 @@ impl Entry {
     }
 
     /// The numeric code for this entry.
-    pub fn code(&self) -> &String {
+    pub fn code(&self) -> &str {
         &self.code
     }
 
@@ -43,7 +60,7 @@ impl Entry {
     }
 
     /// The meaning of this dhatu as provided in the Dhatupatha.
-    pub fn artha(&self) -> &String {
+    pub fn artha(&self) -> &str {
         &self.artha
     }
 
@@ -54,10 +71,11 @@ impl Entry {
     }
 }
 
-/// An interface to the Dhatupatha used on <ashtadhyayi.com>.
+/// An interface to the Dhatupatha.
 ///
 /// Different traditional texts might use different dhatupathas. This struct manages the data for
-/// the dhatupatha on ashtadhyayi.com, which is a superset of the dhatus from five sources:
+/// the dhatupatha on <https://ashtadhyayi.com>, which is a superset of the dhatus from five
+/// sources:
 ///
 /// - the *Siddhāntakaumudī*
 /// - the *Bṛhaddhātukusumākaraḥ*
@@ -65,7 +83,7 @@ impl Entry {
 /// - the *Kṣīrataraṅgiṇī*
 /// - the *Dhātupradīpaḥ*
 ///
-/// The specific dhatupatha we use matters: for certain dhatus, we can determine their metadata
+/// The specific Dhatupatha we use matters: for certain dhatus, we can determine their metadata
 /// only if we know exactly where they are located. (For an example, see our implementation of the
 /// private `maybe_find_antargana` function.)
 pub struct Dhatupatha(Vec<Entry>);
@@ -75,18 +93,21 @@ pub struct Dhatupatha(Vec<Entry>);
 ///
 /// This function uses the `number` parameter to determine the dhatu's antargana. If you wish to
 /// specify the antargana explicitly, please construct `Dhatu` directly with [`Dhatu::builder`].
-pub fn create_dhatu(upadesha: impl AsRef<str>, gana: Gana, number: u16) -> Result<Dhatu> {
-    let upadesha = upadesha.as_ref();
+pub fn create_dhatu(aupadeshika: impl AsRef<str>, gana: Gana, number: u16) -> Result<Dhatu> {
+    let aupadeshika = aupadeshika.as_ref();
 
-    let mut builder = Dhatu::builder().upadesha(upadesha).gana(gana);
+    let mut builder = Dhatu::builder().aupadeshika(aupadeshika).gana(gana);
     if let Some(x) = maybe_find_antargana(gana, number) {
         builder = builder.antargana(x);
     }
-    match upadesha {
+    match aupadeshika {
         "i\\N" | "i\\k" => {
             builder = builder.prefixes(&["aDi"]);
         }
         "SAsu~\\" => {
+            builder = builder.prefixes(&["AN"]);
+        }
+        "za\\da~" if gana == Gana::Curadi => {
             builder = builder.prefixes(&["AN"]);
         }
         _ => (),
@@ -96,7 +117,7 @@ pub fn create_dhatu(upadesha: impl AsRef<str>, gana: Gana, number: u16) -> Resul
 }
 
 impl Dhatupatha {
-    /// Loads a dhatupatha from the provided TSV.
+    /// Loads a dhatupatha from a TSV file.
     ///
     /// This function expects a TSV with headers and at least two columns. The first column is a
     /// short numeric code associated with the dhatu (e.g. `"01.0001"`), and the second column is
@@ -116,7 +137,7 @@ impl Dhatupatha {
         Self::from_text(&content)
     }
 
-    /// Loads a dhatupatha from the input text string.
+    /// Loads a dhatupatha from a TSV string.
     ///
     /// This function is best suited for environments that don't have access to an underlying file
     /// system, such as when running with WebAssembly.
@@ -143,7 +164,7 @@ impl Dhatupatha {
                 Some(x) => x,
                 None => return Err(Error::InvalidFile),
             };
-            let upadesha = match fields.next() {
+            let aupadeshika = match fields.next() {
                 Some(x) => x,
                 None => return Err(Error::InvalidFile),
             };
@@ -153,11 +174,11 @@ impl Dhatupatha {
             };
 
             // If the upadesha is missing, this is a ganasutra -- skip.
-            if upadesha == "-" {
+            if aupadeshika == "-" {
                 continue;
             }
 
-            let entry = Entry::parse(code, upadesha, artha)?;
+            let entry = Entry::parse(code, aupadeshika, artha)?;
             dhatus.push(entry);
         }
 
@@ -172,6 +193,11 @@ impl Dhatupatha {
             Err(_) => None,
         }
     }
+
+    /// Returns an iterator over all dhatus in the Dhatupatha.
+    pub fn iter(&self) -> std::slice::Iter<Entry> {
+        self.0.iter()
+    }
 }
 
 impl IntoIterator for Dhatupatha {
@@ -183,26 +209,34 @@ impl IntoIterator for Dhatupatha {
     }
 }
 
+impl<'a> IntoIterator for &'a Dhatupatha {
+    type Item = &'a Entry;
+    type IntoIter = std::slice::Iter<'a, Entry>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
+/// Returns the antargana of the dhatu at location `number` within `gana.`
+///
+/// We need to check the numeric position explicitly because some dhatus appear multiple times in
+/// their respective ganas with identical forms. (We can usually distinguish these dhatus by
+/// meaning, but vidyut-prakriya has poor support for modeling and comparing dhatu meanings.)
 fn maybe_find_antargana(gana: Gana, number: u16) -> Option<Antargana> {
     if gana == Gana::Bhvadi && (867..=932).contains(&number) {
-        // Need to check range explicitly because some of these roots appear multiple times in the
-        // gana, e.g. svana~.
         Some(Antargana::Ghatadi)
     } else if gana == Gana::Tudadi && (93..=137).contains(&number) {
-        // Need to check range explicitly because some of these roots appear multiple times in the
-        // gana, e.g. juqa~.
+        // juqa~, etc.
         Some(Antargana::Kutadi)
     } else if gana == Gana::Curadi && (192..=236).contains(&number) {
-        // Need to check range explicitly because some of these roots appear multiple times in the
-        // gana, e.g. lakza~.
+        // lakza~, etc.
         Some(Antargana::Akusmiya)
     } else if gana == Gana::Curadi && (279..=337).contains(&number) {
-        // Need to check range explicitly because some of these roots appear multiple times in the
-        // gana, e.g. tuji~.
+        // tuji~, etc.
         Some(Antargana::Asvadiya)
     } else if gana == Gana::Curadi && (338..=388).contains(&number) {
-        // Need to check range explicitly because some of these roots appear multiple times in the
-        // gana, e.g. SraTa~.
+        // SraTa~, etc.
         Some(Antargana::Adhrshiya)
     } else {
         None
@@ -217,7 +251,7 @@ mod tests {
     #[test]
     fn create_dhatu_basic() {
         let dhatu = create_dhatu("BU", Gana::Bhvadi, 1).unwrap();
-        assert_eq!(dhatu.upadesha().unwrap(), "BU");
+        assert_eq!(dhatu.aupadeshika().unwrap(), "BU");
         assert_eq!(dhatu.gana().expect("ok"), Gana::Bhvadi);
         assert!(dhatu.prefixes().is_empty());
         assert!(dhatu.sanadi().is_empty());
@@ -226,7 +260,7 @@ mod tests {
     #[test]
     fn create_dhatu_with_ashas() {
         let dhatu = create_dhatu("SAsu~\\", Gana::Adadi, 23).unwrap();
-        assert_eq!(dhatu.upadesha().unwrap(), "SAsu~\\");
+        assert_eq!(dhatu.aupadeshika().unwrap(), "SAsu~\\");
         assert_eq!(dhatu.gana().expect("ok"), Gana::Adadi);
         assert_eq!(dhatu.prefixes(), &vec!["AN"]);
         assert!(dhatu.sanadi().is_empty());
@@ -239,5 +273,14 @@ mod tests {
 
         let i_k = create_dhatu("i\\k", Gana::Adadi, 42).unwrap();
         assert_eq!(i_k.prefixes(), &vec!["aDi"]);
+    }
+
+    #[test]
+    fn create_dhatu_with_asad() {
+        let dhatu = create_dhatu("za\\da~", Gana::Curadi, 1).unwrap();
+        assert_eq!(dhatu.aupadeshika().unwrap(), "za\\da~");
+        assert_eq!(dhatu.gana().expect("ok"), Gana::Curadi);
+        assert_eq!(dhatu.prefixes(), &vec!["AN"]);
+        assert!(dhatu.sanadi().is_empty());
     }
 }

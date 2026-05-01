@@ -1,8 +1,12 @@
 use crate::args::Subanta;
 use crate::core::errors::Error;
 
-/// A samasa type.
-#[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
+
+/// A *samāsa* type.
+#[derive(Copy, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum SamasaType {
     /// 2.1.5
     Avyayibhava,
@@ -22,8 +26,9 @@ pub enum SamasaType {
     SamaharaDvandva,
 }
 
-/// The information required to derive a samasa in the grammar.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+/// The information required to derive a *samāsa*.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Samasa {
     /// The items to combine in the samasa.
     padas: Vec<Subanta>,
@@ -40,7 +45,7 @@ impl Samasa {
     }
 
     /// Returns all padas to use in the derivation.
-    pub fn padas(&self) -> &Vec<Subanta> {
+    pub fn padas(&self) -> &[Subanta] {
         &self.padas
     }
 
@@ -61,7 +66,7 @@ impl Samasa {
     }
 }
 
-/// Convenience struct for building a `SamasaARgs` struct.
+/// Convenience struct for building a `SamasaArgs` struct.
 #[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
 pub struct SamasaBuilder {
     padas: Vec<Subanta>,

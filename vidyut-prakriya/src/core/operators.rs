@@ -21,8 +21,9 @@ closures. This approach gives us a terse and simple scheme for describing variou
 Rust's zero-cost abstractions ensure that there is no runtime penalty for juggling so many
 closures.
 */
+use crate::args::{Agama, Aupadeshika};
 use crate::core::Tag as T;
-use crate::core::Term;
+use crate::core::{Morph, Term};
 use crate::core::{Prakriya, Rule};
 use crate::it_samjna;
 use crate::sounds as al;
@@ -41,16 +42,35 @@ pub fn antya(sub: &str) -> impl Fn(&mut Term) + '_ {
     |t| t.set_antya(sub)
 }
 
+/// Replaces the last sound in the given term.
+pub fn antya_char(sub: &char) -> impl Fn(&mut Term) + '_ {
+    |t| t.set_antya_char(*sub)
+}
+
+/// Replaces the last sound with nothing.
+pub fn antya_lopa(t: &mut Term) {
+    t.antya_lopa()
+}
+
 /// Replaces the penultimate sound in the given term.
 pub fn upadha(sub: &str) -> impl Fn(&mut Term) + '_ {
     |t| t.set_upadha(sub)
 }
 
+/// Replaces the penultimate sound in the given term.
+pub fn upadha_char(sub: &char) -> impl Fn(&mut Term) + '_ {
+    |t| t.set_upadha_char(*sub)
+}
+
+/// Replaces the last sound with nothing.
+pub fn upadha_lopa(t: &mut Term) {
+    t.upadha_lopa()
+}
+
 /// Replaces the penultimate vowel in the term with a short vowel.
 pub fn upadha_hrasva(term: &mut Term) {
     if let Some(sub) = al::to_hrasva(term.upadha().expect("ok")) {
-        // HACK: use `to_string` for char to make the type system happy.
-        term.set_upadha(&sub.to_string());
+        term.set_upadha_char(sub);
     }
 }
 
@@ -92,28 +112,33 @@ pub fn text(sub: &'static str) -> impl Fn(&mut Term) {
 // Insertion of new terms
 // ======================
 
-pub fn insert_agama_before(p: &mut Prakriya, i: usize, u: &str) {
-    let agama = Term::make_agama(u);
-    p.insert_before(i, agama);
-}
-
-pub fn insert_agama_after(p: &mut Prakriya, i: usize, u: &str) {
-    let agama = Term::make_agama(u);
-    p.insert_after(i, agama);
-}
-
 /// Inserts `agama` at index `i` of the prakriya then runs the it-samjna-prakarana.
-pub fn insert_agama_at(rule: impl Into<Rule>, p: &mut Prakriya, index: usize, agama: &str) {
-    insert_agama_before(p, index, agama);
+pub fn insert_before(rule: impl Into<Rule>, p: &mut Prakriya, index: usize, agama: Agama) {
+    p.insert(index, agama);
     p.step(rule.into());
     it_samjna::run(p, index).expect("ok");
 }
 
+pub fn insert_after(rule: impl Into<Rule>, p: &mut Prakriya, i: usize, agama: Agama) {
+    p.insert_after(i, agama);
+    p.step(rule);
+    it_samjna::run(p, i + 1).expect("should always succeed");
+}
+
 pub fn upadesha_no_it(p: &mut Prakriya, i: usize, sub: &str) {
     if let Some(t) = p.get_mut(i) {
-        t.save_lakshana();
+        t.add_tag(T::Adesha);
         t.set_u(sub);
         t.set_text(sub);
+    }
+}
+
+pub fn set_aupadeshika(p: &mut Prakriya, i: usize, sub: Aupadeshika) {
+    if let Some(t) = p.get_mut(i) {
+        t.add_tag(T::Adesha);
+        t.set_u(sub.as_str());
+        t.set_text(sub.as_str());
+        t.morph = Morph::Dhatu(sub);
     }
 }
 
@@ -133,19 +158,17 @@ pub fn nipatana(sub: &str) -> impl Fn(&mut Prakriya) + '_ {
 }
 
 /// Complex op
-pub fn append_agama(rule: impl Into<Rule>, p: &mut Prakriya, i: usize, sub: &str) {
-    let agama = Term::make_agama(sub);
-    p.insert_after(i, agama);
-    p.step(rule);
-    it_samjna::run(p, i + 1).expect("should always succeed");
-}
-
-/// Complex op
 pub fn adesha(rule: impl Into<Rule>, p: &mut Prakriya, i: usize, sub: &str) {
     p.run_at(rule, i, |t| {
-        t.save_lakshana();
+        t.add_tag(T::Adesha);
         t.set_u(sub);
         t.set_text(sub);
+        if matches!(t.morph, Morph::Dhatu(_)) {
+            t.morph = match sub.parse::<Aupadeshika>() {
+                Ok(au) => Morph::Dhatu(au),
+                Err(_) => Morph::None,
+            };
+        }
     });
     it_samjna::run(p, i).expect("should always succeed");
 }
@@ -175,7 +198,7 @@ pub fn upadesha_yatha(p: &mut Prakriya, i: usize, old: &[&str], new: &[&str]) {
     debug_assert_eq!(old.len(), new.len());
     if let Some(t) = p.get_mut(i) {
         if t.u.is_some() {
-            t.save_lakshana();
+            t.add_tag(T::Adesha);
 
             for (i_entry, x) in old.iter().enumerate() {
                 if t.has_u(x) {

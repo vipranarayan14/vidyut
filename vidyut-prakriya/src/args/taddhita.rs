@@ -1,15 +1,20 @@
-use crate::args::Pratipadika;
+use crate::args::macros::sanskrit_enum;
+use crate::args::{Anubandha, Pratipadika};
 use crate::core::errors::*;
-use crate::enum_boilerplate;
+use crate::it_samjna;
 use wasm_bindgen::prelude::wasm_bindgen;
 
-/// The complete list of taddhita-pratyayas.
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
+
+/// The complete list of *taddhita pratyaya*s.
 ///
 /// Rust's naming convention is to start enum values with capital letters. However, we allow mixed
 /// case explicitly here so that we can name pratyayas more concisely with SLP1. Doing so helps us
 /// distinguish between pratyayas like `naN` and `nan`.
 #[allow(dead_code, non_camel_case_types)]
-#[derive(Copy, Clone, Debug, Hash, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Hash, Eq, Ord, PartialEq, PartialOrd)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[wasm_bindgen]
 pub enum Taddhita {
     /// a
@@ -36,7 +41,7 @@ pub enum Taddhita {
     asic,
     /// -astAt
     astAti,
-    /// -Akin,
+    /// -Akin
     Akinic,
     /// -Ara
     Arak,
@@ -56,9 +61,9 @@ pub enum Taddhita {
     ilac,
     /// -izWa
     izWan,
-    /// -Ika,
+    /// -Ika
     Ikak,
-    /// -Ika,
+    /// -Ika
     Ikan,
     /// -Iyas
     Iyasun,
@@ -82,7 +87,7 @@ pub enum Taddhita {
     kftvasuc,
     /// -kuwAra
     kuwArac,
-    /// -kura,
+    /// -kura
     kuRap,
     /// -Ina
     Ka,
@@ -108,21 +113,21 @@ pub enum Taddhita {
     cvi,
     /// -Iya
     Ca,
-    /// -Iya,
+    /// -Iya
     CaR,
-    /// -Iya,
+    /// -Iya
     Cas,
     /// -jAtIya
     jAtIyar,
     /// -jAha
     jAhac,
-    /// -a,
+    /// -a
     Ya,
     /// -ika
-    YiW,
+    YiWa,
     /// -ya
     Yya,
-    /// -ya,
+    /// -ya
     YyaN,
     /// -ya
     Yyaw,
@@ -303,6 +308,8 @@ pub enum Taddhita {
     /// -la
     lac,
     /// -vat
+    vati,
+    /// -vat
     vatup,
     /// -vaya
     vaya,
@@ -334,7 +341,7 @@ pub enum Taddhita {
     za,
     /// -ka
     zkan,
-    /// -tra
+    /// -tara
     zwarac,
     /// -ika
     zWac,
@@ -344,6 +351,10 @@ pub enum Taddhita {
     zWal,
     /// Ayana
     zPak,
+    /// -ya
+    zyaN,
+    /// -ya
+    zyaY,
     /// -sa
     sa,
     /// -sna
@@ -358,7 +369,7 @@ pub enum Taddhita {
     ha,
 }
 
-enum_boilerplate!(Taddhita, {
+sanskrit_enum!(Taddhita, {
     a => "a",
     akac => "akac",
     ac => "ac",
@@ -412,7 +423,7 @@ enum_boilerplate!(Taddhita, {
     jAtIyar => "jAtIyar",
     jAhac => "jAhac",
     Ya => "Ya",
-    YiW => "YiW",
+    YiWa => "Yi~Wa",
     Yya => "Yya",
     YyaN => "YyaN",
     Yyaw => "Yyaw",
@@ -504,6 +515,7 @@ enum_boilerplate!(Taddhita, {
     rUpya => "rUpya",
     lac => "lac",
     rUpap => "rUpap",
+    vati => "vati~",
     vatup => "vatu~p",
     vaya => "vaya",
     valac => "valac",
@@ -525,6 +537,8 @@ enum_boilerplate!(Taddhita, {
     zWan => "zWan",
     zWal => "zWal",
     zPak => "zPak",
+    zyaN => "zyaN",
+    zyaY => "zyaY",
     sa => "sa",
     sna => "sna",
     sAti => "sAti~",
@@ -533,11 +547,70 @@ enum_boilerplate!(Taddhita, {
     ha => "ha",
 });
 
-/// Models the meaning of a taddhita.
+impl Taddhita {
+    /// Returns the *aupadeśika* form of this *pratyaya*.
+    pub fn aupadeshika(self) -> &'static str {
+        self.as_str()
+    }
+
+    /// Returns the *dr̥śya* form of this *pratyaya*.
+    pub fn drshya(self) -> &'static str {
+        use Taddhita::*;
+
+        match self {
+            // "āyanēyīnīyiyaḥ phaḍhakhacchaghāṁ pratyayādīnām"
+            Pak | PaY | cPaY => "Ayana",
+            PiY => "Ayani",
+            Qak | Qa | QaY => "eya",
+            QakaY => "eyaka",
+            Qinuk => "eyin",
+            Qrak => "eyra",
+            Ka | KaY => "Ina",
+            Ca | CaR | Cas => "Iya",
+            Ga | Gac | Gan | Gas => "ina",
+            // ṭhasyēkaḥ
+            Wak | Wac | WaY | Wan | Wap | YiWa => "ika",
+            zwarac => "tara",
+            _ => {
+                let term = self.into();
+                let (start, end) = it_samjna::drshya_for_term(&term);
+                let slice = &self.as_str()[start..end];
+
+                if slice == "yu~" {
+                    "ana"
+                } else if slice == "vu~" {
+                    "aka"
+                } else {
+                    slice
+                }
+            }
+        }
+    }
+
+    /// Returns the anubandhas used by this pratyaya.
+    pub fn anubandhas(self) -> Vec<Anubandha> {
+        it_samjna::anubandhas_for_term((self).into())
+    }
+
+    /// Returns whether this pratyaya is classified as a *vibhakti*.
+    ///
+    /// For details, see Ashtadhyayi 5.3.1: https://ashtadhyayi.com/sutraani/5/3/1 .
+    pub fn is_vibhakti(&self) -> bool {
+        use Taddhita::*;
+        matches!(
+            self,
+            tasil | tral | ha | at | dA | rhil | dAnIm | TAl | Tamu
+        )
+    }
+}
+
+/// Models the meaning of a *taddhita pratyaya*.
 ///
-/// Generally, taddhitas are available only in specific senses. A given taddhita might be allowed
-/// in one sense but blocked in another. To model and test this behavior, we use the enum below.
-#[derive(Copy, Clone, Debug, Hash, Eq, PartialEq)]
+/// Generally, *taddhita*s are available only in specific senses. A given *taddhita* might be
+/// allowed in one sense but blocked in another. To model and test this behavior, we use the enum
+/// below.
+#[derive(Copy, Clone, Debug, Hash, Eq, Ord, PartialEq, PartialOrd)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum TaddhitaArtha {
     /// Descendant. (4.1.92)
     TasyaApatyam,
@@ -830,8 +903,9 @@ impl TaddhitaArtha {
     }
 }
 
-/// The information required to derive a taddhitanta in the grammar.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+/// The information required to derive a *taddhitānta*.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Taddhitanta {
     pratipadika: Pratipadika,
     taddhita: Taddhita,
@@ -840,17 +914,28 @@ pub struct Taddhitanta {
 }
 
 impl Taddhitanta {
+    /// Defines a simple `Taddhitanta`.
+    ///
+    /// For more options, use `Taddhitanta::builder()` instead.
+    pub fn new(pratipadika: Pratipadika, taddhita: Taddhita) -> Self {
+        Self {
+            pratipadika,
+            taddhita,
+            artha: None,
+            require: None,
+        }
+    }
     /// Returns a new builder for this struct.
     pub fn builder() -> TaddhitantaBuilder {
         TaddhitantaBuilder::default()
     }
 
-    /// The pratipadika to use in the derivation.
+    /// The *prātipadika* to use in the derivation.
     pub fn pratipadika(&self) -> &Pratipadika {
         &self.pratipadika
     }
 
-    /// The taddhita-pratyaya to use in the derivation.
+    /// The *taddhita pratyaya* to use in the derivation.
     pub fn taddhita(&self) -> Taddhita {
         self.taddhita
     }
@@ -860,12 +945,12 @@ impl Taddhitanta {
         self.artha
     }
 
-    /// The value that the krdanta must match, if defined.
+    /// The value that the *kṛdanta* must match, if defined.
     pub fn require(&self) -> &Option<String> {
         &self.require
     }
 
-    /// Sets the required value for this taddhitanta.
+    /// Sets the required value for this *taddhitānta*.
     pub fn with_require(mut self, s: impl AsRef<str>) -> Self {
         self.require = Some(s.as_ref().to_string());
         self
@@ -938,5 +1023,52 @@ mod tests {
         assert!(TasyaApatyam.is_type_of(TasyaApatyam));
         // Parent relationship --> false
         assert!(!TasyaApatyam.is_type_of(Gotra));
+    }
+
+    #[test]
+    fn drshya() {
+        use Taddhita as T;
+
+        // Tests that nothing panics.
+        for taddhita in T::iter() {
+            let _drshya = taddhita.drshya();
+        }
+
+        assert_eq!(T::tamap.drshya(), "tama");
+        assert_eq!(T::jAtIyar.drshya(), "jAtIya");
+
+        assert_eq!(T::Pak.drshya(), "Ayana");
+        assert_eq!(T::Qa.drshya(), "eya");
+        assert_eq!(T::Ka.drshya(), "Ina");
+        assert_eq!(T::CaR.drshya(), "Iya");
+        assert_eq!(T::Gac.drshya(), "ina");
+        assert_eq!(T::Wak.drshya(), "ika");
+
+        // drshya for vibhakti
+        assert_eq!(T::dAnIm.drshya(), "dAnIm");
+        // But, just 'a' for at
+        assert_eq!(T::at.drshya(), "a");
+
+        assert_eq!(T::tasil.drshya(), "tas");
+    }
+
+    #[test]
+    fn anubandhas() {
+        use Taddhita as T;
+
+        // Tests that nothing panics.
+        for taddhita in T::iter() {
+            let _anubandhas = taddhita.anubandhas();
+        }
+
+        // A few examples.
+        use Anubandha as A;
+        assert_eq!(T::cPaY.anubandhas(), vec![A::cit, A::Yit]);
+        assert_eq!(T::jAtIyar.anubandhas(), vec![A::rit]);
+
+        // anubandhas for vibhakti
+        assert_eq!(T::dAnIm.anubandhas(), vec![]);
+        // But, just 'a' for at
+        assert_eq!(T::at.anubandhas(), vec![A::tit]);
     }
 }

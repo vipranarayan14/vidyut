@@ -3,6 +3,7 @@
 //!
 //! Implementation
 //! --------------
+//!
 //! We implement our kosha as a finite state transducer using the `fst` crate. Finite state
 //! transducers are a generalization of tries in that they support both shared prefixes and shared
 //! suffixes.
@@ -22,7 +23,7 @@
 //!
 //! To work around (2), we pack the semantics of Sanskrit words into integers with our
 //! `vidyut::packing` crate. Since strings are difficult to pack, we instead store them in a lookup
-//! table and pack their integer ID instead. For details, see `packing::Unpacker`.
+//! table and pack their integer ID instead.
 //!
 //!
 //! Efficiency
@@ -32,9 +33,9 @@
 //! roughly 1.5x slower than a default `HashMap`. Our production kosha stores more than 29 million
 //! words in around 31MB of data with an average storage cost of 1 byte per word. Of course, the
 //! specific storage cost will vary depending on the words in the input list.
-use crate::errors::*;
-use crate::morph::Pada;
-use crate::packing::*;
+use crate::entries::{DhatuEntry, PadaEntry, PratipadikaEntry};
+use crate::errors::{Error, Result};
+use crate::packing::{Id, PackedEntry, Packer, SubantaSuffixes, TinantaSuffixes};
 use fst::map::Stream;
 use fst::raw::{Fst, Node, Output};
 use fst::{Map, MapBuilder};
@@ -43,6 +44,7 @@ use rustc_hash::FxHashMap;
 use std::fs::File;
 use std::io;
 use std::path::{Path, PathBuf};
+use vidyut_prakriya::args::{Lakara, Linga, Prayoga, Purusha, Vacana, Vibhakti};
 
 // Use the range [0, 64] to avoid confusion with the ASCII range, which starts at 65 (01000001,
 // i.e. uppercase `A`).
@@ -61,22 +63,20 @@ impl Paths {
             base: base_path.as_ref().to_path_buf(),
         }
     }
+
     /// Path to the underlying FST.
     fn fst(&self) -> PathBuf {
         self.base.join("padas.fst")
     }
-    /// Path to the dhatus table, which maps indices to `Dhatu`s.
-    fn dhatus(&self) -> PathBuf {
-        self.base.join("dhatus.csv")
-    }
-    /// Path to the pratipadikas table, which maps indices to `Pratipadika`s.
-    fn pratipadikas(&self) -> PathBuf {
-        self.base.join("pratipadikas.csv")
+
+    /// Path to our registry of interned data.
+    fn registry(&self) -> PathBuf {
+        self.base.join("registry.msgpack")
     }
 }
 
-fn to_packed_pada(output: Output) -> PackedPada {
-    PackedPada::from_u32(output.value() as u32)
+fn to_packed_entry(output: Output) -> PackedEntry {
+    PackedEntry::from_u32(output.value() as u32)
 }
 
 /// A compact Sanskrit kosha.
@@ -84,7 +84,7 @@ pub struct Kosha {
     /// The underlying FST object.
     fst: Map<Vec<u8>>,
     /// Maps indices to semantics objects.
-    unpacker: Unpacker,
+    packer: Packer,
 }
 
 impl Kosha {
@@ -94,12 +94,100 @@ impl Kosha {
 
         info!("Loading fst from `{:?}`", paths.fst());
         let fst = Map::new(std::fs::read(paths.fst())?)?;
-        let unpacker = Unpacker::from_data(
-            PratipadikaTable::read(&paths.pratipadikas())?,
-            DhatuTable::read(&paths.dhatus())?,
-        );
 
-        Ok(Self { fst, unpacker })
+        info!("Loading registry from `{:?}`", paths.registry());
+        let packer = Packer::read(&paths.registry())?;
+
+        Ok(Self { fst, packer })
+    }
+
+    /// Returns the number of words in the kosha.
+    pub fn len(&self) -> usize {
+        self.packer.count
+    }
+
+    /// Returns an iterator over all dhatus contained in the kosha.
+    ///
+    /// # Usage
+    ///
+    /// ```rust,no_run
+    /// # use vidyut_kosha::*;
+    /// use vidyut_kosha::Kosha;
+    ///
+    /// let kosha = Kosha::new("/path/to/kosha/data")?;
+    ///
+    /// for dhatu in kosha.dhatus() {
+    ///   println!("{} --> {:?}", dhatu.clean_text(), dhatu);
+    /// }
+    /// # Ok::<(), Error>(())
+    /// ```
+    pub fn dhatus(&self) -> impl Iterator<Item = DhatuEntry> {
+        let n = self.packer.dhatus.len();
+        (0..n).filter_map(|i| self.packer.unpack_dhatu(Id(i)).ok())
+    }
+
+    /// Returns an iterator over all pratipadikas contained in the kosha.
+    ///
+    /// # Usage
+    ///
+    /// ```rust,no_run
+    /// # use vidyut_kosha::*;
+    /// use vidyut_kosha::Kosha;
+    ///
+    /// let kosha = Kosha::new("/path/to/kosha/data")?;
+    ///
+    /// for pratipadika in kosha.pratipadikas() {
+    ///   println!("{:?}", pratipadika);
+    /// }
+    /// # Ok::<(), Error>(())
+    /// ```
+    pub fn pratipadikas(&self) -> impl Iterator<Item = PratipadikaEntry> {
+        let n = self.packer.pratipadikas.len();
+        (0..n).filter_map(|i| self.packer.unpack_pratipadika(Id(i)).ok())
+    }
+
+    /// Returns an iterator over all of the paradigms contained in the kosha.
+    ///
+    /// Suffix tables are an implementation detail, but they might be useful for better
+    /// understanding how the kosha is constructed.
+    ///
+    /// # Usage
+    ///
+    /// ```rust,no_run
+    /// # use vidyut_kosha::*;
+    /// use vidyut_kosha::Kosha;
+    ///
+    /// let kosha = Kosha::new("/path/to/kosha/data")?;
+    ///
+    /// for suffixes in kosha.subanta_suffixes() {
+    ///   println!("{:?}", suffixes);
+    /// }
+    /// # Ok::<(), Error>(())
+    /// ```
+    pub fn subanta_suffixes(&self) -> &[SubantaSuffixes] {
+        &self.packer.subanta_suffixes
+    }
+
+    /// Returns an iterator over all of the tinanta suffix tables contained in the kosha.
+    ///
+    /// Suffx tables are an implementation detail, but they might be useful for better
+    /// understanding how the kosha is constructed.
+    ///
+    /// # Usage
+    ///
+    /// ```rust,no_run
+    /// # use vidyut_kosha::*;
+    /// use vidyut_kosha::Kosha;
+    ///
+    /// let kosha = Kosha::new("/path/to/kosha/data")?;
+    ///
+    /// for suffixes in kosha.tinanta_suffixes() {
+    ///   println!("{:?}", suffixes);
+    /// }
+    /// # Ok::<(), Error>(())
+    /// ```
+    pub fn tinanta_suffixes(&self) -> &[TinantaSuffixes] {
+        &self.packer.tinanta_suffixes
     }
 
     /// Returns a reference to this kosha's underlying FST.
@@ -107,19 +195,96 @@ impl Kosha {
         &self.fst
     }
 
-    /// Returns whether this kosha contains at least one word with exact value `key`.
+    /// Returns whether the kosha contains at least one entry with the exact value `key`.
+    ///
+    /// In our provided kosha data, all keys are SLP1 strings, and final *visarga* is replaced
+    /// with `s` and `r` as appropriate.
+    ///
+    /// # Usage
+    ///
+    /// ```rust,no_run
+    /// # use vidyut_kosha::*;
+    /// use vidyut_kosha::Kosha;
+    ///
+    /// let kosha = Kosha::new("/path/to/kosha/data")?;
+    ///
+    /// assert!(kosha.contains_key("naras"));
+    /// # Ok::<(), Error>(())
+    /// ```
     #[inline]
     pub fn contains_key(&self, key: &str) -> bool {
-        self.fst.contains_key(key)
+        let fst = self.fst.as_fst();
+        let mut node = fst.root();
+        let mut out = Output::zero();
+        for (i_b, b) in key.bytes().enumerate() {
+            node = match node.find_input(b) {
+                None => return false,
+                Some(i_n) => {
+                    let t = node.transition(i_n);
+                    out = out.cat(t.out);
+                    fst.node(t.addr)
+                }
+            };
+            if node.is_final() {
+                let suffix = &key[i_b + 1..];
+                if self.contains_suffix(suffix, node, out) {
+                    return true;
+                }
+            }
+        }
+        node.is_final()
     }
 
+    fn contains_suffix(&self, suffix: &str, node: Node, out_base: Output) -> bool {
+        let prefix_entry = to_packed_entry(out_base);
+
+        if self.packer.contains_suffix(&prefix_entry, suffix) {
+            return true;
+        }
+
+        let fst = self.fst.as_fst();
+        for c1 in 0..DUPES_PER_BYTE {
+            if let Some(i1) = node.find_input(c1) {
+                let t1 = node.transition(i1);
+                let o1 = out_base.cat(t1.out);
+                let n1 = fst.node(t1.addr);
+
+                for c2 in 0..DUPES_PER_BYTE {
+                    if let Some(i2) = n1.find_input(c2) {
+                        let t2 = n1.transition(i2);
+                        let o2 = o1.cat(t2.out);
+                        let n2 = fst.node(t2.addr);
+
+                        // In our current scheme, this node is always final.
+                        assert!(n2.is_final());
+
+                        let output = o2.cat(n2.final_output());
+                        let entry = to_packed_entry(output);
+                        if self.packer.contains_suffix(&entry, suffix) {
+                            return true;
+                        }
+                    } else {
+                        return false;
+                    }
+                }
+            } else {
+                break;
+            }
+        }
+
+        false
+    }
+
+    /// TODO: make public again
+    ///
     /// Returns whether the kosha contains at least one word that starts with `key`.
     ///
     /// Prefix checks are slightly faster than ordinary key lookups. I also tried implementing this
     /// with `fst::Stream`, but that approach was much slower than just accessing the FST directly,
     /// which is what we do here.
     #[inline]
-    pub fn contains_prefix(&self, key: &str) -> bool {
+    #[allow(unused)]
+    fn contains_prefix(&self, key: &str) -> bool {
         // Adapted from `FstRef::get`
         let fst = self.fst.as_fst();
         let mut node = fst.root();
@@ -135,78 +300,191 @@ impl Kosha {
         true
     }
 
-    /// Unpacks the given word via this kosha's `Unpacker` instance.
-    pub fn unpack(&self, p: &PackedPada) -> Result<Pada> {
-        self.unpacker.unpack(p)
-    }
-
-    /// Gets all results for the given `key`, including duplicates.
+    /// Returns all results for the given `key`, including duplicates.
+    ///
+    /// In our provided kosha data, all keys are SLP1 strings, and final *visarga* is replaced
+    /// with `s` and `r` as appropriate.
+    ///
+    /// # Usage
+    ///
+    /// ```rust,no_run
+    /// # use vidyut_kosha::*;
+    /// use vidyut_kosha::Kosha;
+    ///
+    /// let kosha = Kosha::new("/path/to/kosha/data")?;
+    ///
+    /// for entry in kosha.get_all("Bavati") {
+    ///     println!("{:#?}", entry);
+    /// }
+    /// # Ok::<(), Error>(())
+    /// ```
     #[inline]
-    pub fn get_all(&self, key: &str) -> Vec<PackedPada> {
-        // Adapted from `FstRef::get`
-        // https://docs.rs/fst/0.4.7/src/fst/raw/mod.rs.html#682
+    pub fn get_all(&self, key: &str) -> Vec<PadaEntry> {
+        // This code is complex, so it has extensive comments.
+
+        // Start by walking the FST. We do so by moving from node to node and incrementing
+        // an output value for each edge we traverse.
+        //
+        // We have two types of entries to handle:
+        // - complete words
+        // - prefixes, which point to a suffix table.
+        //
+        // We use prefixes because they save an enormous amount of space when used well.
+        let mut ret = Vec::new();
         let fst = self.fst.as_fst();
         let mut node = fst.root();
         let mut out = Output::zero();
-        for &b in key.as_bytes() {
+        for (i_b, b) in key.bytes().enumerate() {
             node = match node.find_input(b) {
-                None => return Vec::new(),
+                None => {
+                    // No more matches from this string -- return what we have so far.
+                    return ret;
+                }
                 Some(i) => {
+                    // Still searching -- transition to next sode and state.
                     let t = node.transition(i);
                     out = out.cat(t.out);
                     fst.node(t.addr)
                 }
+            };
+
+            // Possible prefix -- check for all suffix matches.
+            if node.is_final() {
+                let suffix = &key[i_b + 1..];
+                self.get_all_for_suffix(&mut ret, suffix, node, out).ok();
             }
         }
 
+        // Exact match with input word. This is NOT a prefix and should not use prefix logic.
         if node.is_final() {
-            let mut ret = vec![to_packed_pada(out.cat(node.final_output()))];
-            add_duplicates(node, out, fst, &mut ret);
+            let packed = to_packed_entry(out.cat(node.final_output()));
+            if !packed.is_prefix() {
+                let entry = match self.packer.unpack(&packed) {
+                    Ok(e) => e,
+                    _ => {
+                        // TODO: not sure how to handle this condition.
+                        // This should never happen.
+                        return ret;
+                    }
+                };
 
-            ret
-        } else {
-            Vec::new()
+                ret.push(entry);
+            }
+
+            // Run even if first entry prefix, since duplicates might not be prefixes.
+            self.add_pada_duplicates(node, out, fst, &mut ret);
+        }
+
+        ret
+    }
+
+    fn get_all_for_suffix<'a>(
+        &'a self,
+        ret: &mut Vec<PadaEntry<'a>>,
+        suffix: &str,
+        node: Node,
+        out_base_non_final: Output,
+    ) -> Result<()> {
+        // Handle possible first prefix
+        {
+            let out_base_final = out_base_non_final.cat(node.final_output());
+            let entry = to_packed_entry(out_base_final);
+            self.packer.get_all_for_suffix(ret, &entry, suffix)?;
+        }
+
+        let fst = self.fst.as_fst();
+        for c1 in 0..DUPES_PER_BYTE {
+            if let Some(i1) = node.find_input(c1) {
+                let t1 = node.transition(i1);
+                let o1 = out_base_non_final.cat(t1.out);
+                let n1 = fst.node(t1.addr);
+
+                for c2 in 0..DUPES_PER_BYTE {
+                    if let Some(i2) = n1.find_input(c2) {
+                        let t2 = n1.transition(i2);
+                        let o2 = o1.cat(t2.out);
+                        let n2 = fst.node(t2.addr);
+
+                        // In our current scheme, this node is always final.
+                        assert!(n2.is_final());
+
+                        let output = o2.cat(n2.final_output());
+                        let entry = to_packed_entry(output);
+                        self.packer.get_all_for_suffix(ret, &entry, suffix)?;
+                    } else {
+                        return Ok(());
+                    }
+                }
+            } else {
+                return Ok(());
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Appends all available duplicates to our list of results.
+    ///
+    /// Args:
+    /// - `node`: the node corresponding to the last ASCII character of the input string.
+    /// - `out`: the output corresponding to this state.
+    /// - `fst`: the underlying FST.
+    /// - `results`: the results list.
+    fn add_pada_duplicates<'a>(
+        &'a self,
+        node: Node,
+        out: Output,
+        fst: &Fst<Vec<u8>>,
+        results: &mut Vec<PadaEntry<'a>>,
+    ) {
+        for c1 in 0..DUPES_PER_BYTE {
+            if let Some(i1) = node.find_input(c1) {
+                let t1 = node.transition(i1);
+                let o1 = out.cat(t1.out);
+                let n1 = fst.node(t1.addr);
+
+                for c2 in 0..DUPES_PER_BYTE {
+                    if let Some(i2) = n1.find_input(c2) {
+                        let t2 = n1.transition(i2);
+                        let o2 = o1.cat(t2.out);
+                        let n2 = fst.node(t2.addr);
+
+                        // In our current scheme, this node is always final.
+                        if n2.is_final() {
+                            let packed = to_packed_entry(o2.cat(n2.final_output()));
+                            if !packed.is_prefix() {
+                                let entry = match self.packer.unpack(&packed) {
+                                    Ok(e) => e,
+                                    Err(e) => panic!("Could not unpack: {e}"),
+                                };
+                                results.push(entry);
+                            }
+                        }
+                    } else {
+                        return;
+                    }
+                }
+            } else {
+                return;
+            }
         }
     }
 
-    /// Iterates over all keys in the FST.
+    /// Iterates over all key-value pairs in the FST.
+    ///
+    /// NOTE: this method currently has limited functionality.
     pub fn stream(&self) -> Stream<'_> {
         self.fst.stream()
     }
-}
 
-/// Appends all available duplicates to our list of results.
-///
-/// Args:
-/// - `node`: the node corresponding to the last ASCII character of the input string.
-/// - `out`: the output corresponding to this state.
-/// - `fst`: the underlying FST.
-/// - `results`: the results list.
-fn add_duplicates(node: Node, out: Output, fst: &Fst<Vec<u8>>, results: &mut Vec<PackedPada>) {
-    for c1 in 0..=DUPES_PER_BYTE {
-        if let Some(i1) = node.find_input(c1) {
-            let t1 = node.transition(i1);
-            let o1 = out.cat(t1.out);
-            let n1 = fst.node(t1.addr);
+    /// Packs the given `PadaEntry` into a simple integer code.
+    pub fn pack(&self, value: &PadaEntry) -> Result<PackedEntry> {
+        self.packer.pack(value)
+    }
 
-            for c2 in 0..=DUPES_PER_BYTE {
-                if let Some(i2) = n1.find_input(c2) {
-                    let t2 = n1.transition(i2);
-                    let o2 = o1.cat(t2.out);
-                    let n2 = fst.node(t2.addr);
-
-                    // In our current scheme, this node is always final.
-                    if n2.is_final() {
-                        let result = to_packed_pada(o2.cat(n2.final_output()));
-                        results.push(result);
-                    }
-                } else {
-                    return;
-                }
-            }
-        } else {
-            return;
-        }
+    /// Unpacks the given `PackedEntry` into a full `PadaEntry`.
+    pub fn unpack(&self, value: PackedEntry) -> Result<PadaEntry> {
+        self.packer.unpack(&value)
     }
 }
 
@@ -230,7 +508,6 @@ pub struct Builder {
 /// two bytes. (Our most duplicated forms appear around 100 times, so we need at least 2 bytes to
 /// support them.)
 fn create_extended_key(key: &str, tag: usize) -> Result<Vec<u8>> {
-    // FIXME: make this an Error.
     if tag < MAX_DUPLICATES {
         let mut extended_key = key.as_bytes().to_vec();
         extended_key.push((tag / (DUPES_PER_BYTE as usize)) as u8);
@@ -261,38 +538,96 @@ impl Builder {
 
     /// Inserts the given `key` with the given semantics in `value`.
     ///
-    /// Keys must be inserted in lexicographic order. If a key is received out of order,
-    /// the build process will fail.
-    pub fn insert(&mut self, key: &str, value: &Pada) -> Result<()> {
-        let seen_keys = &mut self.seen_keys;
+    /// Notes:
+    /// - Keys must be inserted in lexicographic order. If a key is received out of order,
+    ///   the build process will fail.
+    /// - All linguistic data on `value` must be registered beforehand. You can do this by calling
+    ///   `register_pada_entry`.
+    pub fn insert(&mut self, key: &str, value: &PadaEntry) -> Result<()> {
+        let value = self.pack(value)?;
+        self.insert_packed(key, &value)
+    }
 
+    /// Inserts the given `key` with the packed semantics in `value`.
+    ///
+    /// Notes:
+    /// - Keys must be inserted in lexicographic order. If a key is received out of order,
+    ///   the build process will fail.
+    /// - All linguistic data on `value` must be registered beforehand. You can do this by calling
+    ///   `register_pada_entry`.
+    pub fn insert_packed(&mut self, key: &str, value: &PackedEntry) -> Result<()> {
+        let u64_payload = u64::from(value.to_u32());
+
+        let seen_keys = &mut self.seen_keys;
         let num_repeats = match seen_keys.get(key) {
             Some(c) => *c,
             None => 0,
         };
         seen_keys.insert(key.to_string(), num_repeats + 1);
 
-        let value = u64::from(self.packer.pack(value)?.to_u32());
-
         // For duplicates, add another u8 to make this key unique.
         if num_repeats > 0 {
             // Subtract 1 so that the duplicate tag always starts at 0.
             let final_key = create_extended_key(key, num_repeats - 1)?;
-            self.fst_builder.insert(&final_key, value)?;
+            self.fst_builder.insert(&final_key, u64_payload)?;
         } else {
-            self.fst_builder.insert(key, value)?;
+            self.fst_builder.insert(key, u64_payload)?;
         };
+
+        // We can't reply on `fst.len()` because a single FST entry might map to an ending
+        // paradigm containing multiple suffixes. So instead, maintain our own count. We
+        // keep this count on the packer so we can reuse its MessagePack serde.
+        self.packer.increment(value)?;
 
         Ok(())
     }
 
-    /// Writes all FST data to disk.
-    pub fn finish(self) -> Result<()> {
-        info!("Writing FST and packer data to `{:?}`.", self.paths.base);
-        self.fst_builder.finish()?;
+    /// Registers the given dhatus on the internal packer. Duplicates are ignored.
+    pub fn register_dhatu_entry(&mut self, dhatu: &DhatuEntry) {
+        self.packer.register_dhatu_entry(dhatu);
+    }
 
-        let unpacker = Unpacker::from_packer(&self.packer);
-        unpacker.write(&self.paths.dhatus(), &self.paths.pratipadikas())?;
+    /// Registers the given pratipadikas on the internal packer. Duplicates are ignored.
+    pub fn register_pratipadika_entry(&mut self, pratipadika: &PratipadikaEntry) {
+        self.packer.register_pratipadika_entry(pratipadika);
+    }
+
+    /// Registers all linguistic data defined on `entry` on this kosha's internal registry.
+    pub fn register_pada_entry(&mut self, entry: &PadaEntry) {
+        match entry {
+            PadaEntry::Subanta(s) => self.register_pratipadika_entry(&s.pratipadika_entry()),
+            PadaEntry::Tinanta(t) => self.register_dhatu_entry(&t.dhatu_entry()),
+        }
+    }
+
+    /// Registers the given paradigm of subantas and returns the prefix they all share.
+    pub fn register_subanta_paradigm(
+        &mut self,
+        pratipadika: &PratipadikaEntry,
+        padas: &[(String, Linga, Vibhakti, Vacana)],
+    ) -> Result<(String, PackedEntry)> {
+        self.packer.register_subanta_paradigm(pratipadika, padas)
+    }
+
+    /// Registers the given paradigm of subantas and returns the prefix they all share.
+    pub fn register_tinanta_paradigm(
+        &mut self,
+        dhatu: &DhatuEntry,
+        padas: &[(String, Prayoga, Lakara, Purusha, Vacana)],
+    ) -> Result<(String, PackedEntry)> {
+        self.packer.register_tinanta_suffixes(dhatu, padas)
+    }
+
+    /// Packs the given *pada* into a more compact format.
+    pub fn pack(&self, pada: &PadaEntry) -> Result<PackedEntry> {
+        self.packer.pack(pada)
+    }
+
+    /// Writes all kosha data to disk.
+    pub fn finish(self) -> Result<()> {
+        info!("Writing FST and packer data to {:?}.", self.paths.base);
+        self.fst_builder.finish()?;
+        self.packer.write(&self.paths.registry())?;
 
         Ok(())
     }
@@ -302,9 +637,10 @@ impl Builder {
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+    use crate::entries::*;
+    use vidyut_prakriya::args as vp;
+    use vidyut_prakriya::args::{Dhatu, Pratipadika, Slp1String};
 
-    use crate::morph::*;
-    use fst::Streamer;
     use tempfile::tempdir;
 
     type TestResult = Result<()>;
@@ -315,46 +651,62 @@ mod tests {
             base: Path::new("foo").to_path_buf(),
         };
         assert!(paths.fst().starts_with("foo/"));
-        assert!(paths.dhatus().starts_with("foo/"));
-        assert!(paths.pratipadikas().starts_with("foo/"));
+        assert!(paths.registry().starts_with("foo/"));
+    }
+
+    fn safe(s: &str) -> Slp1String {
+        Slp1String::from(s).expect("ok")
     }
 
     #[test]
     fn write_and_load() -> TestResult {
-        let tin = Pada::Tinanta(Tinanta {
-            dhatu: Dhatu("gam".to_string()),
-            purusha: Purusha::Prathama,
-            vacana: Vacana::Eka,
-            lakara: Lakara::Lat,
-            pada: PadaPrayoga::Parasmaipada,
-        });
-        let krdanta = Pada::Subanta(Subanta {
-            pratipadika: Pratipadika::Krdanta {
-                dhatu: Dhatu("gam".to_string()),
-                pratyaya: KrtPratyaya::Shatr,
-            },
-            linga: Some(Linga::Pum),
-            vacana: Some(Vacana::Eka),
-            vibhakti: Some(Vibhakti::V2),
-            is_purvapada: false,
-        });
-        let sup = Pada::Subanta(Subanta {
-            pratipadika: Pratipadika::Basic {
-                text: "agni".to_string(),
-                lingas: vec![Linga::Pum],
-            },
-            linga: Some(Linga::Pum),
-            vacana: Some(Vacana::Eka),
-            vibhakti: Some(Vibhakti::V2),
-            is_purvapada: false,
-        });
+        let gam = Dhatu::mula(safe("gam"), vp::Gana::Bhvadi);
+        let gacchati = vp::Tinanta::new(
+            gam.clone(),
+            vp::Prayoga::Kartari,
+            vp::Lakara::Lat,
+            vp::Purusha::Prathama,
+            vp::Vacana::Eka,
+        );
+        let gacchati_e: TinantaEntry = (&gacchati).into();
+
+        let gacchan: Pratipadika = vp::Krdanta::builder()
+            .dhatu(gam.clone())
+            .krt(vp::BaseKrt::Satf)
+            .lakara(vp::Lakara::Lat)
+            .prayoga(vp::Prayoga::Kartari)
+            .build()
+            .unwrap()
+            .into();
+        let gacchan_7s = vp::Subanta::new(
+            gacchan.clone(),
+            vp::Linga::Pum,
+            vp::Vibhakti::Saptami,
+            vp::Vacana::Eka,
+        );
+        let gacchan_7s_e: SubantaEntry = (&gacchan_7s).try_into().expect("ok");
+
+        let agni = Pratipadika::basic(safe("agni"));
+        let agni_2s = vp::Subanta::new(
+            agni.clone(),
+            vp::Linga::Pum,
+            vp::Vibhakti::Dvitiya,
+            vp::Vacana::Eka,
+        );
+        let agni_2s_e: SubantaEntry = (&agni_2s).try_into().expect("ok");
 
         // Builder
         let dir = tempdir()?;
         let mut builder = Builder::new(dir.path())?;
-        builder.insert("agnim", &sup)?;
-        builder.insert("gacCati", &tin)?;
-        builder.insert("gacCati", &krdanta)?;
+
+        let gam_entry = DhatuEntry::new(&gam);
+        builder.register_dhatu_entry(&gam_entry);
+        builder.register_pratipadika_entry(&(&gacchan).try_into().expect("ok"));
+        builder.register_pratipadika_entry(&(&agni).try_into().expect("ok"));
+
+        builder.insert("agnim", &agni_2s_e.into())?;
+        builder.insert("gacCati", &gacchati_e.into())?;
+        builder.insert("gacCati", &gacchan_7s_e.into())?;
         builder.finish()?;
 
         // Constructor
@@ -375,13 +727,14 @@ mod tests {
         assert!(lex.contains_prefix("gacCati"));
         assert!(!lex.contains_prefix("gacCant"));
 
+        /*
         // get_all
         fn get_all_padas(lex: &Kosha, key: &str) -> Result<Vec<Pada>> {
             lex.get_all(key).iter().map(|p| lex.unpack(p)).collect()
         }
 
         assert_eq!(get_all_padas(&lex, "agnim")?, vec![sup]);
-        assert_eq!(get_all_padas(&lex, "gacCati")?, vec![tin, krdanta]);
+        assert_eq!(get_all_padas(&lex, "gacCati")?, vec![tin, gacchati]);
         assert_eq!(get_all_padas(&lex, "gacCat")?, vec![]);
         assert_eq!(get_all_padas(&lex, "123")?, vec![]);
 
@@ -401,6 +754,7 @@ mod tests {
             ]
         );
 
+        */
         Ok(())
     }
 

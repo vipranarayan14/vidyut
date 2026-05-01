@@ -1,5 +1,7 @@
+use crate::args::Agama;
+use crate::args::Lakara;
 use crate::core::Tag;
-use crate::core::Term;
+use crate::core::{Strings, Term};
 use crate::sounds::Pattern;
 
 /// A view over multiple terms.
@@ -15,18 +17,11 @@ use crate::sounds::Pattern;
 ///
 /// `TermView` provides an API for working with these sequences. It provides a simple API that
 /// mirrors the `Term` API, and it provides raw access to its underlying `Term`s as escape hatches.
-///
-/// Instead of creating TermView directly, we recommend using the [`pada`], [`nyap_pratipadika`],
-/// or [`pratyaya`] methods on `Prakriya.
-///
-/// [`pada`]: Prakriya::get
-/// [`nyap_pratipadika`]: Prakriya::nyap_pratipadika
-/// [`pratyaya`]: Prakriya::view
 #[derive(Debug)]
 pub struct TermView<'a> {
     /// All of the terms in the prakriya. We store the entire `Term` list so that our internal
     /// indices line up with the indices we would use on `Prakriya`.
-    terms: &'a Vec<Term>,
+    terms: &'a [Term],
     /// Index of the first term in the view (inclusive).
     start: usize,
     /// Index of the last term in the view (inclusive).
@@ -35,7 +30,7 @@ pub struct TermView<'a> {
 
 impl<'a> TermView<'a> {
     /// Creates a new term view over the interval `[start, end]``
-    pub fn new(terms: &'a Vec<Term>, start: usize, end: usize) -> Option<Self> {
+    pub fn new(terms: &'a [Term], start: usize, end: usize) -> Option<Self> {
         if end < terms.len() {
             Some(TermView { terms, start, end })
         } else {
@@ -43,25 +38,31 @@ impl<'a> TermView<'a> {
         }
     }
 
-    pub fn with_start(terms: &'a Vec<Term>, start: usize) -> Option<Self> {
-        if start >= terms.len() {
+    pub fn with_start(terms: &'a [Term], i: usize) -> Option<Self> {
+        if i >= terms.len() {
             return None;
         }
 
-        let mut end = start;
-        for (i, t) in terms.iter().enumerate().filter(|(i, _)| *i >= start) {
-            // A `kit` Agama is part of the term it follows, i.e. there is no view available here.
-            // Exception: iw-Agama marked as kit.
-            if i == start && t.has_all_tags(&[Tag::Agama, Tag::kit]) && !t.has_u("iw") {
-                return None;
-            }
+        let first = &terms[i];
+        // A `kit` Agama is part of the term it follows, i.e. there is no view available here.
+        // Exception: iw-Agama marked as kit.
+        if first.is_agama() && first.has_tag(Tag::kit) && !first.is(Agama::iw) {
+            return None;
+        }
 
-            if !t.has_tag(Tag::Agama) {
-                end = i;
-                break;
+        for j in i..terms.len() {
+            let last = &terms[j];
+
+            if !last.is_agama() {
+                return Some(TermView {
+                    terms,
+                    start: i,
+                    end: j,
+                });
             }
         }
-        Some(TermView { terms, start, end })
+
+        None
     }
 
     /// Returns this view's text.
@@ -96,8 +97,8 @@ impl<'a> TermView<'a> {
     }
 
     /// Returns whether this view's text is equal to any of the strings in `items`.
-    pub fn has_text_in(&self, values: &[&str]) -> bool {
-        values.iter().any(|v| self.has_text(v))
+    pub fn has_text_in(&self, values: impl Strings) -> bool {
+        values.as_strings().iter().any(|v| self.has_text(v))
     }
 
     // Accessors
@@ -136,12 +137,9 @@ impl<'a> TermView<'a> {
     ///
     /// `end_non_empty` is useful if the view ends in an empty pratyaya, such as a kvip-pratyaya.
     pub fn end_non_empty(&self) -> Option<usize> {
-        for i in (self.start..=self.end).rev() {
-            if !self.terms.get(i).expect("present").is_empty() {
-                return Some(i);
-            }
-        }
-        None
+        (self.start..=self.end)
+            .rev()
+            .find(|&i| !self.terms.get(i).expect("present").is_empty())
     }
 
     /// Returns whether the view's text is empty.
@@ -177,9 +175,9 @@ impl<'a> TermView<'a> {
         let mut i = 0;
         // O(n) is the best I can think of:
         for t in self.slice().iter().rev() {
-            for c in t.text.chars().rev() {
+            for c in t.text.bytes().rev() {
                 if i == nth_rev {
-                    return Some(c);
+                    return Some(c as char);
                 }
                 i += 1;
             }
@@ -208,10 +206,7 @@ impl<'a> TermView<'a> {
     }
 
     pub fn has_u(&self, u: &str) -> bool {
-        match self.slice().first() {
-            Some(t) => t.has_u(u),
-            None => false,
-        }
+        self.first().has_u(u)
     }
 
     pub fn has_u_in(&self, us: &[&str]) -> bool {
@@ -222,12 +217,8 @@ impl<'a> TermView<'a> {
         self.slice().iter().any(|t| t.has_tag(tag))
     }
 
-    pub fn has_lakshana(&self, s: &str) -> bool {
-        self.last().has_lakshana(s)
-    }
-
-    pub fn has_lakshana_in(&self, items: &[&str]) -> bool {
-        self.last().has_lakshana_in(items)
+    pub fn has_lakara(&self, la: Lakara) -> bool {
+        self.last().has_lakara(la)
     }
 
     pub fn has_tag_in(&self, tags: &[Tag]) -> bool {
@@ -277,10 +268,10 @@ mod tests {
         assert_eq!(t.upadha(), Some('a'));
         assert_eq!(t.antya(), Some('m'));
 
-        assert_eq!(t.get_at(0), Some('g'));
-        assert_eq!(t.get_at(1), Some('a'));
-        assert_eq!(t.get_at(2), Some('m'));
-        assert_eq!(t.get_at(3), None);
+        assert_eq!(t.get(0), Some('g'));
+        assert_eq!(t.get(1), Some('a'));
+        assert_eq!(t.get(2), Some('m'));
+        assert_eq!(t.get(3), None);
     }
 
     #[test]

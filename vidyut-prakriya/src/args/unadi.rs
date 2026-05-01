@@ -1,9 +1,13 @@
+use crate::args::macros::sanskrit_enum;
+use crate::args::{Anubandha, Krt};
 use crate::core::errors::*;
-use crate::enum_boilerplate;
-
+use crate::it_samjna;
 use wasm_bindgen::prelude::wasm_bindgen;
 
-/// The complete list of unadi-pratyayas.
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
+
+/// The complete list of *uṇādi pratyaya*s.
 ///
 /// Rust's naming convention is to start enum values with capital letters. However, we allow mixed
 /// case explicitly here so that we can name pratyayas more concisely with SLP1. Doing so helps us
@@ -11,7 +15,8 @@ use wasm_bindgen::prelude::wasm_bindgen;
 ///
 /// NOTE: we generated this list programmatically. Many of these pratyayas have typos.
 #[allow(dead_code, non_camel_case_types)]
-#[derive(Copy, Clone, Debug, Hash, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Hash, Eq, PartialEq, Ord, PartialOrd)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[wasm_bindgen]
 pub enum Unadi {
     /// -a
@@ -640,7 +645,7 @@ pub enum Unadi {
     syan,
 }
 
-enum_boilerplate!(Unadi, {
+sanskrit_enum!(Unadi, {
     a => "a",
     aknuc => "aknuc",
     aNgac => "aNgac",
@@ -954,3 +959,67 @@ enum_boilerplate!(Unadi, {
     sya => "sya",
     syan => "syan",
 });
+
+impl Unadi {
+    /// Returns the *aupadesika* form of this pratyaya.
+    pub fn aupadeshika(self) -> &'static str {
+        self.as_str()
+    }
+
+    /// Returns the *dr̥śya* form of this *pratyaya*.
+    ///
+    /// NOTE: `Unadi.drshya` has not been tested extensively.
+    pub fn drshya(self) -> &'static str {
+        let term = Krt::Unadi(self).to_term();
+        let (start, end) = it_samjna::drshya_for_term(&term);
+        let slice = &self.as_str()[start..end];
+
+        if slice == "yu~" {
+            "ana"
+        } else if slice == "vu~" {
+            "aka"
+        } else if slice == "wra" {
+            "tra"
+        } else if slice == "v" {
+            ""
+        } else {
+            slice
+        }
+    }
+
+    /// Returns the anubandhas used by this *pratyaya*.
+    pub fn anubandhas(self) -> Vec<Anubandha> {
+        let term = Krt::Unadi(self).to_term();
+        it_samjna::anubandhas_for_term(term)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn drshya() {
+        // Test that nothing panics.
+        for unadi in Unadi::iter() {
+            println!("{}", unadi.drshya());
+        }
+
+        // A few examples.
+        assert_eq!(Unadi::YuR.drshya(), "u");
+        assert_eq!(Unadi::manin.drshya(), "man");
+    }
+
+    #[test]
+    fn anubandhas() {
+        // Test that nothing panics.
+        for unadi in Unadi::iter() {
+            let _anubandhas = unadi.anubandhas();
+        }
+
+        // A few examples.
+        use Anubandha as A;
+        assert_eq!(Unadi::YuR.anubandhas(), vec![A::Yit, A::Rit]);
+        assert_eq!(Unadi::manin.anubandhas(), vec![A::idit, A::nit]);
+    }
+}

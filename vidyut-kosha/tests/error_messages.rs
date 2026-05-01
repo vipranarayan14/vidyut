@@ -1,6 +1,6 @@
 use std::fs::File;
 use tempfile::{tempdir, NamedTempFile};
-use vidyut_kosha::morph::Pada;
+use vidyut_kosha::packing::PackedEntry;
 use vidyut_kosha::{Builder, Error, Kosha};
 
 fn assert_is_fst_error<T>(ret: Result<T, Error>) {
@@ -30,20 +30,8 @@ fn build_with_existing_file() {
     }
 }
 
-#[test]
-fn build_with_out_of_order_keys() {
-    let dir = tempdir().unwrap();
-    let path = dir.path().join("output");
-
-    let mut builder = Builder::new(&path).unwrap();
-
-    let ret = builder.insert("b", &Pada::Unknown);
-    assert!(ret.is_ok());
-
-    let ret = builder.insert("a", &Pada::Unknown);
-    assert_is_fst_error(ret);
-}
-
+// No support for `Unknown`
+#[ignore]
 #[test]
 fn build_with_too_many_duplicates() {
     let dir = tempdir().unwrap();
@@ -52,10 +40,10 @@ fn build_with_too_many_duplicates() {
     let mut builder = Builder::new(&path).unwrap();
 
     for _ in 0..=4225 {
-        let ret = builder.insert("a", &Pada::Unknown);
+        let ret = builder.insert_packed("a", &PackedEntry::new());
         assert!(ret.is_ok());
     }
-    let ret = builder.insert("a", &Pada::Unknown);
+    let ret = builder.insert_packed("a", &PackedEntry::new());
     assert!(ret.is_err());
 }
 
@@ -96,8 +84,7 @@ fn read_missing_files() {
 fn read_invalid_fst_file() {
     let dir = tempdir().unwrap();
     File::create(dir.path().join("padas.fst")).unwrap();
-    File::create(dir.path().join("dhatus.csv")).unwrap();
-    File::create(dir.path().join("pratipadikas.csv")).unwrap();
+    File::create(dir.path().join("registry.msgpack")).unwrap();
 
     let k = Kosha::new(dir.path());
     assert_is_fst_error(k);

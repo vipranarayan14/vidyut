@@ -1,19 +1,37 @@
-use std::error::Error;
 use std::fmt;
 
 #[allow(unused)]
-pub(crate) type Result<T> = std::result::Result<T, ChandasError>;
+pub(crate) type Result<T> = std::result::Result<T, Error>;
 
 #[allow(unused)]
-#[derive(Clone, Debug)]
-pub enum ChandasError {
-    ParseError,
+#[derive(Debug)]
+pub enum Error {
+    VrttaParse,
+    EnumParse(String),
+    Io(std::io::Error),
 }
 
-impl Error for ChandasError {}
+impl Error {
+    pub(crate) fn enum_parse_error(value: &str) -> Self {
+        Error::EnumParse(value.to_string())
+    }
+}
 
-impl fmt::Display for ChandasError {
+impl From<std::io::Error> for Error {
+    #[inline]
+    fn from(err: std::io::Error) -> Error {
+        Error::Io(err)
+    }
+}
+
+impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Could not parse meter.")
+        use Error::*;
+
+        match self {
+            VrttaParse => write!(f, "Could not parse meter."),
+            EnumParse(e) => write!(f, "Could not parse enum value {e}."),
+            Io(_) => write!(f, "Could not open input file."),
+        }
     }
 }

@@ -27,6 +27,7 @@
 
 use crate::scheme::Scheme;
 use rustc_hash::FxHashMap;
+use unicode_normalization::UnicodeNormalization;
 
 type Table = &'static [(&'static str, &'static str)];
 
@@ -99,7 +100,7 @@ pub const LATIN_NFD: Table = &[
 ];
 
 /// NFD/NFC mapping for Devanagari.
-/// Spec: https://unicode.org/charts/PDF/U0900.pdf
+/// Spec: <https://unicode.org/charts/PDF/U0900.pdf>
 ///
 /// (other Devanagari NFC/NFD combinations are usually exempt.)
 pub const DEVANAGARI_NFD: Table = &[
@@ -117,6 +118,7 @@ pub const DEVANAGARI_NFD: Table = &[
 ];
 
 /// Characters that should not be created during NFD --> NFC.
+#[cfg(target_arch = "wasm32")]
 pub const DEVANAGARI_COMPOSITION_EXCLUSIONS: &[&str] = &[
     "\u{0958}", // ka
     "\u{0959}", // kha
@@ -129,7 +131,7 @@ pub const DEVANAGARI_COMPOSITION_EXCLUSIONS: &[&str] = &[
 ];
 
 /// NFD/NFC mapping for Bengali.
-/// Spec: https://unicode.org/charts/PDF/U0980.pdf
+/// Spec: <https://unicode.org/charts/PDF/U0980.pdf>
 pub const BENGALI_NFD: Table = &[
     ("\u{09cb}", "\u{09c7}\u{09be}"), // vowel sign o
     ("\u{09cc}", "\u{09c7}\u{09d7}"), // vowel sign au
@@ -139,15 +141,16 @@ pub const BENGALI_NFD: Table = &[
 ];
 
 /// Characters that should not be created during NFD --> NFC.
+#[cfg(target_arch = "wasm32")]
 pub const BENGALI_COMPOSITION_EXCLUSIONS: &[&str] = &["\u{09dc}", "\u{09dd}", "\u{09df}"];
 
-/// Spec: https://unicode.org/charts/PDF/U1000.pdf
+/// Spec: <https://unicode.org/charts/PDF/U1000.pdf>
 pub const MYANMAR_NFD: Table = &[
     ("\u{1026}", "\u{1025}\u{102e}"), // uu
 ];
 
 /// NFD/NFC mapping for Balinese.
-/// Spec: https://unicode.org/charts/PDF/U1B00.pdf
+/// Spec: <https://unicode.org/charts/PDF/U1B00.pdf>
 pub const BALINESE_NFD: Table = &[
     ("\u{1b06}", "\u{1b05}\u{1b35}"),
     ("\u{1b08}", "\u{1b07}\u{1b35}"),
@@ -161,13 +164,13 @@ pub const BALINESE_NFD: Table = &[
     ("\u{1b41}", "\u{1b3f}\u{1b35}"),
 ];
 
-/// Spec: http://www.unicode.org/charts/PDF/U11300.pdf
+/// Spec: <http://www.unicode.org/charts/PDF/U11300.pdf>
 pub const GRANTHA_NFD: Table = &[
     ("\u{1134b}", "\u{11347}\u{1133e}"), // vowel sign oo
     ("\u{1134c}", "\u{11347}\u{11357}"), // vowel sign au
 ];
 
-/// Spec: https://unicode.org/charts/PDF/U0A00.pdf
+/// Spec: <https://unicode.org/charts/PDF/U0A00.pdf>
 pub const GURMUKHI_NFD: Table = &[
     ("\u{0a33}", "\u{0a32}\u{0a3c}"), // letter lla
     ("\u{0a36}", "\u{0a38}\u{0a3c}"), // letter sha
@@ -177,12 +180,13 @@ pub const GURMUKHI_NFD: Table = &[
     ("\u{0a5e}", "\u{0a2b}\u{0a3c}"), // letter fa
 ];
 
-/// Spec: https://unicode.org/charts/PDF/U0A00.pdf
+/// Spec: <https://unicode.org/charts/PDF/U0A00.pdf>
+#[cfg(target_arch = "wasm32")]
 pub const GURMUKHI_COMPOSITION_EXCLUSIONS: &[&str] = &[
     "\u{0a33}", "\u{0a36}", "\u{0a59}", "\u{0a5a}", "\u{0a5b}", "\u{0a5e}",
 ];
 
-/// Spec: https://unicode.org/charts/PDF/U0C80.pdf
+/// Spec: <https://unicode.org/charts/PDF/U0C80.pdf>
 pub const KANNADA_NFD: Table = &[
     ("\u{0cc0}", "\u{0cbf}\u{0cd5}"),        // vowel sign ii
     ("\u{0cc7}", "\u{0cc6}\u{0cd5}"),        // vowel sign ee
@@ -191,14 +195,14 @@ pub const KANNADA_NFD: Table = &[
     ("\u{0ccb}", "\u{0cc6}\u{cc2}\u{0cd5}"), // vowel sign oo
 ];
 
-/// Spec: https://unicode.org/charts/PDF/U0D00.pdf
+/// Spec: <https://unicode.org/charts/PDF/U0D00.pdf>
 pub const MALAYALAM_NFD: Table = &[
     ("\u{0d4a}", "\u{0d46}\u{0d3e}"), // vowel sign o
     ("\u{0d4b}", "\u{0d47}\u{0d3e}"), // vowel sign oo
     ("\u{0d4c}", "\u{0d46}\u{0d57}"), // vowel sign au
 ];
 
-/// Spec: https://unicode.org/charts/PDF/U0B00.pdf
+/// Spec: <https://unicode.org/charts/PDF/U0B00.pdf>
 pub const ORIYA_NFD: Table = &[
     ("\u{0b48}", "\u{0b47}\u{0b56}"), // vowel sign ai
     ("\u{0b4b}", "\u{0b47}\u{0b3e}"), // vowel sign o
@@ -207,15 +211,16 @@ pub const ORIYA_NFD: Table = &[
     ("\u{0b5d}", "\u{0b22}\u{0b3c}"), // letter rha
 ];
 
+#[cfg(target_arch = "wasm32")]
 pub const ORIYA_COMPOSITION_EXCLUSIONS: &[&str] = &["\u{0b5c}", "\u{0b5d}"];
 
-/// Spec: https://unicode.org/charts/PDF/U11580.pdf
+/// Spec: <https://unicode.org/charts/PDF/U11580.pdf>
 pub const SIDDHAM_NFD: Table = &[
     ("\u{115ba}", "\u{115b8}\u{115af}"), // vowel sign o
     ("\u{115bb}", "\u{115b9}\u{115af}"), // vowel sign au
 ];
 
-/// Spec: https://unicode.org/charts/PDF/U0D80.pdf
+/// Spec: <https://unicode.org/charts/PDF/U0D80.pdf>
 pub const SINHALA_NFD: Table = &[
     ("\u{0dda}", "\u{0dd9}\u{0dca}"),         // vowel sign ee
     ("\u{0ddc}", "\u{0dd9}\u{0dcf}"),         // vowel sign o
@@ -223,7 +228,7 @@ pub const SINHALA_NFD: Table = &[
     ("\u{0dde}", "\u{0dd9}\u{0ddf}"),         // vowel sign au
 ];
 
-/// Spec: https://unicode.org/charts/PDF/U0B80.pdf
+/// Spec: <https://unicode.org/charts/PDF/U0B80.pdf>
 pub const TAMIL_NFD: Table = &[
     ("\u{0b94}", "\u{0b92}\u{0bd7}"), // letter au
     ("\u{0bca}", "\u{0bc6}\u{0bbe}"), // vowel sign o
@@ -231,7 +236,7 @@ pub const TAMIL_NFD: Table = &[
     ("\u{0bcc}", "\u{0bc6}\u{0bd7}"), // vowel sign au
 ];
 
-/// Spec: https://unicode.org/charts/PDF/U0C00.pdf
+/// Spec: <https://unicode.org/charts/PDF/U0C00.pdf>
 pub const TELUGU_NFD: Table = &[
     ("\u{0c48}", "\u{0c46}\u{0c56}"), // vowel sign ai
 ];
@@ -242,7 +247,7 @@ pub const KAITHI_NFD: Table = &[
     ("\u{110ab}", "\u{110a5}\u{110ba}"), // Letter va
 ];
 
-/// Spec: https://www.unicode.org/charts/PDF/U11480.pdf
+/// Spec: <https://www.unicode.org/charts/PDF/U11480.pdf>
 pub const TIRHUTA_NFD: Table = &[
     ("\u{114bb}", "\u{114b9}\u{114ba}"), // vowel sign ai
     ("\u{114bc}", "\u{114b9}\u{114b0}"), // vowel sign o
@@ -253,9 +258,24 @@ pub const TIRHUTA_NFD: Table = &[
 ///
 /// Only characters that appear in one of our `Scheme`s will be converted. All other characters
 /// will be left as-is.
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn to_nfc(s: &str) -> String {
+    // `.collect()` seems not to pre-allocate.
+    //
+    // Result: 8.27s --> 7.89s (-5%)
+    let mut ret = String::with_capacity(s.len());
+    for c in s.nfc() {
+        ret.push(c);
+    }
+    ret
+}
+
+/// WASM-only version of `to_nfc`.
 ///
-/// TODO: consider using `unicode_normalization` in non-WASM with conditional compilation. Leaning
-/// against due to having to reason about two different systems.
+/// The `unicode_normalization` implementation of this logic is substantially faster (which
+/// motivates using it in non-WASM builds) but also much larger (which motivates avoiding it in
+/// WASM builds).
+#[cfg(target_arch = "wasm32")]
 pub(crate) fn to_nfc(s: &str) -> String {
     let mut map = FxHashMap::default();
     let mut len_longest_key = 0;
@@ -305,6 +325,7 @@ pub(crate) fn to_nfc(s: &str) -> String {
 ///
 /// Our version of `to_nfd` supports only those characters that are part of a `Scheme`. All other
 /// characters are left unchanged.
+#[allow(unused)]
 pub(crate) fn to_nfd(s: &str) -> String {
     let mut map: FxHashMap<String, String> = FxHashMap::default();
 
