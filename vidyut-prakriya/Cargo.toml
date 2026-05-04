@@ -30,6 +30,7 @@ rmp-serde = { workspace = true }
 sha2 = "0.10.6"
 sha256 = "1.1.1"
 test_utils = { path = "test_utils" }
+vidyut-kosha = { path = "../vidyut-kosha" }
 vidyut-lipi = { path = "../vidyut-lipi" }
 
 [features]

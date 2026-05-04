@@ -1909,6 +1909,7 @@ dependencies = [
  "sha256",
  "test_utils",
  "vidyut-akshara",
+ "vidyut-kosha",
  "vidyut-lipi",
  "wasm-bindgen",
 ]
