@@ -290,9 +290,13 @@ impl Prakriya {
                 should_split = false;
             }
 
-            if should_split && t.is_dhatu() && !t.is_pratyaya() {
+            if should_split && (t.is_upasarga()) {
                 ret.push_str("+");
             }
+
+            // if should_split && t.is_dhatu() && !t.is_pratyaya() {
+            //     ret.push_str("+");
+            // }
         }
         ret
     }
